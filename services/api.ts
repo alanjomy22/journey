@@ -1,0 +1,112 @@
+// API Configuration and Base Service
+export const API_CONFIG = {
+  BASE_URL: 'https://2a86add2dee8.ngrok-free.app',
+  ENDPOINTS: {
+    IMAGE_DESCRIPTION: '/descriptions/base64',
+    CHAT: '/journal/chat',
+  },
+  HEADERS: {
+    'Content-Type': 'application/json',
+  },
+};
+
+// API Types
+export interface ImageDescriptionRequest {
+  media_type: 'image';
+  base64_data: string;
+  content_type: 'image/jpeg' | 'image/png';
+}
+
+export interface ImageDescriptionResponse {
+  description: string;
+}
+
+export interface ChatRequest {
+  description: string;
+  session_id: string;
+  input_message: string;
+}
+
+export interface ChatResponse {
+  type: string;
+  content: string;
+}
+
+// Base API service class
+class ApiService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = API_CONFIG.BASE_URL) {
+    this.baseUrl = baseUrl;
+  }
+
+  private async makeRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    
+    const config: RequestInit = {
+      ...options,
+      headers: {
+        ...API_CONFIG.HEADERS,
+        ...options.headers,
+      },
+    };
+
+    try {
+      const response = await fetch(url, config);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw error;
+    }
+  }
+
+  async getImageDescription(request: ImageDescriptionRequest): Promise<ImageDescriptionResponse> {
+    const response = await this.makeRequest<ImageDescriptionResponse>(
+      API_CONFIG.ENDPOINTS.IMAGE_DESCRIPTION,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+    return response;
+  }
+
+  async getChatResponse(request: ChatRequest): Promise<ChatResponse> {
+    return this.makeRequest<ChatResponse>(
+      API_CONFIG.ENDPOINTS.CHAT,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  private generateFallbackResponse(userMessage: string): string {
+    const responses = [
+      'That\'s a beautiful reflection. What emotions did you feel during that moment?',
+      'It sounds like that experience was meaningful to you. Can you tell me more about what made it special?',
+      'I can sense the importance of this memory. How do you think it has influenced your perspective?',
+      'That\'s wonderful insight. What would you like to remember most about this experience?',
+      'Thank you for sharing that. What lessons or insights do you take from this day?',
+      'I appreciate you opening up about this. How do you think this experience has shaped your understanding of yourself?',
+      'That\'s really insightful. What would you tell someone else who might be going through a similar experience?',
+      'I love how you described that. What other details about this moment stand out to you?',
+      'Your words paint such a vivid picture. How do you think this experience will influence your future choices?',
+      'That\'s a profound observation. What other thoughts or feelings came up for you during this time?',
+    ];
+    
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+}
+
+// Export singleton instance
+export const apiService = new ApiService();

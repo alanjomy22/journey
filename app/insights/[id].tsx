@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { mockJournalEntries } from '@/constants/mockData';
+import { useImageDescription, useChat } from '@/hooks';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -39,13 +40,50 @@ export default function InsightDetailsScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [imageDescription, setImageDescription] = useState<string>('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [sessionId, setSessionId] = useState<string>('');
+  
+  // API hooks
+  const { getDescription, loading: descriptionLoading, error: descriptionError } = useImageDescription();
+  const { sendMessage, loading: chatLoading, error: chatError } = useChat();
 
   // Find the journal entry
   const entry = mockJournalEntries.find(e => e.id === id);
 
   useEffect(() => {
+    const handleInitialImageAnalysis = async (imageUri: string) => {
+      setIsAnalyzing(true);
+      
+      // Generate a unique session ID for this conversation
+      const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setSessionId(newSessionId);
+      
+      try {
+        // Get image description from API
+        const description = await getDescription(imageUri);
+        setImageDescription(description);
+        
+        // Generate chat response based on the description
+        const chatResponse = await sendMessage('I want to write a journal about this image', description, newSessionId);
+        
+        // Add bot's streaming response
+        setTimeout(() => {
+          addStreamingBotMessage(chatResponse);
+          setIsAnalyzing(false);
+        }, 1000);
+      } catch (error) {
+        console.error('Error in initial image analysis:', error);
+        setIsAnalyzing(false);
+        // Fallback to original behavior
+        setTimeout(() => {
+          addStreamingBotMessage(generateImageResponse());
+        }, 1000);
+      }
+    };
+
     if (entry) {
-      // Initialize with user's image and bot's response
+      // Initialize with user's image
       const initialMessages: ChatMessage[] = [
         {
           id: '1',
@@ -57,12 +95,21 @@ export default function InsightDetailsScreen() {
       ];
       setMessages(initialMessages);
       
-      // Add bot's streaming response after a short delay
-      setTimeout(() => {
-        addStreamingBotMessage(generateImageResponse());
-      }, 1000);
+      // Get image description from API and then generate chat response
+      handleInitialImageAnalysis(entry.image);
     }
-  }, [entry]);
+  }, [entry, getDescription, sendMessage]);
+
+  // Show API errors if any
+  useEffect(() => {
+    if (descriptionError) {
+      console.warn('Image description error:', descriptionError);
+    }
+    if (chatError) {
+      console.warn('Chat error:', chatError);
+    }
+  }, [descriptionError, chatError]);
+
 
   if (!entry) {
     return (
@@ -108,27 +155,35 @@ export default function InsightDetailsScreen() {
     return shuffled.slice(0, 3 + Math.floor(Math.random() * 3));
   };
 
-  const generateBotResponse = (userInput: string): string => {
-    const contextualResponses = [
-      'That\'s a beautiful reflection. What emotions did you feel during that moment?',
-      'It sounds like that experience was meaningful to you. Can you tell me more about what made it special?',
-      'I can sense the importance of this memory. How do you think it has influenced your perspective?',
-      'That\'s wonderful insight. What would you like to remember most about this experience?',
-      'Thank you for sharing that. What lessons or insights do you take from this day?',
-      'I appreciate you opening up about this. How do you think this experience has shaped your understanding of yourself?',
-      'That\'s really insightful. What would you tell someone else who might be going through a similar experience?',
-      'I love how you described that. What other details about this moment stand out to you?',
-      'Your words paint such a vivid picture. How do you think this experience will influence your future choices?',
-      'That\'s a profound observation. What other thoughts or feelings came up for you during this time?',
-    ];
-    
-    // Sometimes ask random questions to deepen the conversation
-    if (Math.random() < 0.3) {
-      const randomQuestions = generateRandomQuestions();
-      return randomQuestions[0];
+  const generateBotResponse = async (userInput: string): Promise<string> => {
+    try {
+      // Use the chat API with the image description and session ID
+      const response = await sendMessage(userInput, imageDescription, sessionId);
+      return response;
+    } catch (error) {
+      console.error('Error generating bot response:', error);
+      // Fallback to original logic
+      const contextualResponses = [
+        'That\'s a beautiful reflection. What emotions did you feel during that moment?',
+        'It sounds like that experience was meaningful to you. Can you tell me more about what made it special?',
+        'I can sense the importance of this memory. How do you think it has influenced your perspective?',
+        'That\'s wonderful insight. What would you like to remember most about this experience?',
+        'Thank you for sharing that. What lessons or insights do you take from this day?',
+        'I appreciate you opening up about this. How do you think this experience has shaped your understanding of yourself?',
+        'That\'s really insightful. What would you tell someone else who might be going through a similar experience?',
+        'I love how you described that. What other details about this moment stand out to you?',
+        'Your words paint such a vivid picture. How do you think this experience will influence your future choices?',
+        'That\'s a profound observation. What other thoughts or feelings came up for you during this time?',
+      ];
+      
+      // Sometimes ask random questions to deepen the conversation
+      if (Math.random() < 0.3) {
+        const randomQuestions = generateRandomQuestions();
+        return randomQuestions[0];
+      }
+      
+      return contextualResponses[Math.floor(Math.random() * contextualResponses.length)];
     }
-    
-    return contextualResponses[Math.floor(Math.random() * contextualResponses.length)];
   };
 
   const addStreamingBotMessage = (fullText: string) => {
@@ -169,7 +224,7 @@ export default function InsightDetailsScreen() {
     });
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (inputText.trim()) {
       const userMessage: ChatMessage = {
         id: Date.now().toString(),
@@ -179,12 +234,19 @@ export default function InsightDetailsScreen() {
         timestamp: new Date(),
       };
 
+      const messageText = inputText.trim();
       setMessages(prev => [...prev, userMessage]);
       setInputText('');
       
       // Add bot response with streaming effect
-      setTimeout(() => {
-        addStreamingBotMessage(generateBotResponse(inputText.trim()));
+      setTimeout(async () => {
+        try {
+          const botResponse = await generateBotResponse(messageText);
+          addStreamingBotMessage(botResponse);
+        } catch (error) {
+          console.error('Error generating response:', error);
+          addStreamingBotMessage('I\'m having trouble processing that right now. Could you try rephrasing your message?');
+        }
       }, 500 + Math.random() * 1000);
     }
   };
