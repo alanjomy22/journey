@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { apiService, ChatRequest, ChatResponse } from '@/services/api';
 
 interface UseChatReturn {
-  sendMessage: (message: string, description: string, sessionId?: string) => Promise<string>;
+  sendMessage: (message: string, description: string, sessionId?: string) => Promise<ChatResponse>;
   loading: boolean;
   error: string | null;
 }
@@ -14,7 +14,7 @@ export function useChat(): UseChatReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sendMessage = useCallback(async (message: string, description: string, sessionId: string = 'default-session'): Promise<string> => {
+  const sendMessage = useCallback(async (message: string, description: string, sessionId: string = 'default-session'): Promise<ChatResponse> => {
     setLoading(true);
     setError(null);
 
@@ -29,14 +29,17 @@ export function useChat(): UseChatReturn {
       // Call API
       const response: ChatResponse = await apiService.getChatResponse(request);
 
-      return response.content;
+      return response;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       console.error('Error getting chat response:', err);
       
       // Return a fallback response
-      return 'I\'d love to hear more about your thoughts on this. What stands out to you most about this experience?';
+      return {
+        type: 'question',
+        content: 'I\'d love to hear more about your thoughts on this. What stands out to you most about this experience?'
+      };
     } finally {
       setLoading(false);
     }

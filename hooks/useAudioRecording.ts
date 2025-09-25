@@ -146,6 +146,15 @@ export function useAudioRecording(): UseAudioRecordingReturn {
 
       console.log('▶️ Playing audio recording...');
 
+      // Configure audio session to use speaker
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
       // Stop any existing playback
       if (soundRef.current) {
         await soundRef.current.unloadAsync();
@@ -154,7 +163,10 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       // Load and play the recording
       const { sound } = await Audio.Sound.createAsync(
         { uri: state.recordingUri },
-        { shouldPlay: true }
+        { 
+          shouldPlay: true,
+          volume: 1.0,
+        }
       );
 
       soundRef.current = sound;

@@ -3,6 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { mockJournalEntries } from '@/constants/mockData';
 import { useImageDescription, useChat, useAudioRecording } from '@/hooks';
 import { Image } from 'expo-image';
+import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -31,6 +32,8 @@ interface ChatMessage {
   audioDuration?: string;
   isStreaming?: boolean;
   isPlaying?: boolean;
+  responseAudioUrl?: string; // For bot response audio files
+  shouldAutoPlay?: boolean; // Flag to auto-play audio responses
 }
 
 export default function InsightDetailsScreen() {
@@ -42,6 +45,7 @@ export default function InsightDetailsScreen() {
   const [imageDescription, setImageDescription] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sessionId, setSessionId] = useState<string>('');
+  const [currentResponseAudio, setCurrentResponseAudio] = useState<Audio.Sound | null>(null);
   
   // API hooks
   const { getDescription, loading: descriptionLoading, error: descriptionError } = useImageDescription();
@@ -65,7 +69,140 @@ export default function InsightDetailsScreen() {
   // Find the journal entry
   const entry = mockJournalEntries.find(e => e.id === id);
 
-  const addStreamingBotMessage = (fullText: string) => {
+  // Function to play response audio
+  const playResponseAudio = async (audioUrl: string) => {
+    try {
+      console.log('🔊 Playing response audio:', audioUrl);
+      
+      // Configure audio session to use speaker
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+      
+      // Stop any currently playing response audio
+      if (currentResponseAudio) {
+        await currentResponseAudio.unloadAsync();
+      }
+      
+      // Load and play the new audio
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { 
+          shouldPlay: true,
+          // Force speaker output on iOS
+          volume: 1.0,
+        }
+      );
+      
+      setCurrentResponseAudio(sound);
+      
+      // Set up completion listener
+      sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status.isLoaded && status.didJustFinish) {
+          console.log('✅ Response audio finished playing');
+          setCurrentResponseAudio(null);
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Failed to play response audio:', error);
+    }
+  };
+
+  // Function to play audio messages in chat
+  const playAudioMessage = async (audioUri: string, messageId: string) => {
+    try {
+      console.log('🔊 Playing audio message:', audioUri);
+      
+      // Configure audio session to use speaker
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+      
+      // Stop any currently playing response audio
+      if (currentResponseAudio) {
+        await currentResponseAudio.unloadAsync();
+      }
+      
+      // Update message state to show playing
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, isPlaying: true }
+            : { ...msg, isPlaying: false }
+        )
+      );
+      
+      // Load and play the audio
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUri },
+        { 
+          shouldPlay: true,
+          volume: 1.0,
+        }
+      );
+      
+      setCurrentResponseAudio(sound);
+      
+      // Set up completion listener
+      sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status.isLoaded && status.didJustFinish) {
+          console.log('✅ Audio message finished playing');
+          setCurrentResponseAudio(null);
+          // Update message state to show not playing
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === messageId 
+                ? { ...msg, isPlaying: false }
+                : msg
+            )
+          );
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Failed to play audio message:', error);
+      // Reset playing state on error
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, isPlaying: false }
+            : msg
+        )
+      );
+    }
+  };
+
+  // Function to stop audio message playback
+  const stopAudioMessage = async (messageId: string) => {
+    try {
+      if (currentResponseAudio) {
+        await currentResponseAudio.unloadAsync();
+        setCurrentResponseAudio(null);
+      }
+      
+      // Update message state to show not playing
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, isPlaying: false }
+            : msg
+        )
+      );
+    } catch (error) {
+      console.error('❌ Failed to stop audio message:', error);
+    }
+  };
+
+  const addStreamingBotMessage = (fullText: string, audioUrl?: string, shouldAutoPlay: boolean = false) => {
     const messageId = Date.now().toString();
     
     // Add empty streaming message
@@ -76,6 +213,8 @@ export default function InsightDetailsScreen() {
       isUser: false,
       timestamp: new Date(),
       isStreaming: true,
+      responseAudioUrl: audioUrl,
+      shouldAutoPlay,
     };
     
     setMessages(prev => [...prev, streamingMessage]);
@@ -87,13 +226,22 @@ export default function InsightDetailsScreen() {
     words.forEach((word, index) => {
       setTimeout(() => {
         currentText += (index === 0 ? '' : ' ') + word;
+        const isLastWord = index === words.length - 1;
+        
         setMessages(prev => 
           prev.map(msg => 
             msg.id === messageId 
-              ? { ...msg, text: currentText, isStreaming: index < words.length - 1 }
+              ? { ...msg, text: currentText, isStreaming: !isLastWord }
               : msg
           )
         );
+        
+        // Auto-play audio when streaming is complete
+        if (isLastWord && shouldAutoPlay && audioUrl) {
+          setTimeout(() => {
+            playResponseAudio(audioUrl);
+          }, 500); // Small delay after text completion
+        }
         
         // Scroll to bottom after each word
         setTimeout(() => {
@@ -121,7 +269,7 @@ export default function InsightDetailsScreen() {
         
         // Add bot's streaming response
         setTimeout(() => {
-          addStreamingBotMessage(chatResponse);
+          addStreamingBotMessage(chatResponse.content, chatResponse.audio_file, false);
           setIsAnalyzing(false);
         }, 1000);
       } catch (error) {
@@ -129,7 +277,7 @@ export default function InsightDetailsScreen() {
         setIsAnalyzing(false);
         // Fallback to original behavior
         setTimeout(() => {
-          addStreamingBotMessage(generateImageResponse());
+          addStreamingBotMessage(generateImageResponse(), undefined, false);
         }, 1000);
       }
     };
@@ -211,11 +359,16 @@ export default function InsightDetailsScreen() {
     return shuffled.slice(0, 3 + Math.floor(Math.random() * 3));
   };
 
-  const generateBotResponse = async (userInput: string): Promise<string> => {
+  const generateBotResponse = async (userInput: string, isAudioInput: boolean = false): Promise<{text: string, audioUrl?: string}> => {
     try {
       // Use the chat API with the image description and session ID
       const response = await sendMessage(userInput, imageDescription, sessionId);
-      return response;
+      
+      // Handle new response format with audio_file
+      return {
+        text: response.content,
+        audioUrl: response.audio_file
+      };
     } catch (error) {
       console.error('Error generating bot response:', error);
       // Fallback to original logic
@@ -235,10 +388,10 @@ export default function InsightDetailsScreen() {
       // Sometimes ask random questions to deepen the conversation
       if (Math.random() < 0.3) {
         const randomQuestions = generateRandomQuestions();
-        return randomQuestions[0];
+        return { text: randomQuestions[0] };
       }
       
-      return contextualResponses[Math.floor(Math.random() * contextualResponses.length)];
+      return { text: contextualResponses[Math.floor(Math.random() * contextualResponses.length)] };
     }
   };
 
@@ -259,11 +412,11 @@ export default function InsightDetailsScreen() {
       // Add bot response with streaming effect
       setTimeout(async () => {
         try {
-          const botResponse = await generateBotResponse(messageText);
-          addStreamingBotMessage(botResponse);
+          const botResponse = await generateBotResponse(messageText, false);
+          addStreamingBotMessage(botResponse.text, botResponse.audioUrl, false);
         } catch (error) {
           console.error('Error generating response:', error);
-          addStreamingBotMessage('I\'m having trouble processing that right now. Could you try rephrasing your message?');
+          addStreamingBotMessage('I\'m having trouble processing that right now. Could you try rephrasing your message?', undefined, false);
         }
       }, 500 + Math.random() * 1000);
     }
@@ -315,11 +468,12 @@ export default function InsightDetailsScreen() {
           // Send transcribed text to chat API
           setTimeout(async () => {
             try {
-              const botResponse = await generateBotResponse(transcribedText);
-              addStreamingBotMessage(botResponse);
+              const botResponse = await generateBotResponse(transcribedText, true);
+              // Auto-play audio for responses to audio input
+              addStreamingBotMessage(botResponse.text, botResponse.audioUrl, true);
             } catch (error) {
               console.error('Error generating response:', error);
-              addStreamingBotMessage('I heard your message but I\'m having trouble processing it right now. Could you try again?');
+              addStreamingBotMessage('I heard your message but I\'m having trouble processing it right now. Could you try again?', undefined, false);
             }
           }, 500);
         } else {
@@ -453,31 +607,25 @@ export default function InsightDetailsScreen() {
             <TouchableOpacity 
               style={styles.audioMessage}
               onPress={async () => {
-                if (item.audioUri && item.isUser) {
-                  if (isPlaying) {
-                    await stopPlayback();
+                if (item.audioUri) {
+                  if (item.isPlaying) {
+                    await stopAudioMessage(item.id);
                   } else {
-                    // Set the recording URI to play this specific audio
-                    await playRecording();
+                    await playAudioMessage(item.audioUri, item.id);
                   }
                 }
               }}
             >
               <RemixIcon 
-                name={isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
-                size={32} 
+                name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
+                size={24} 
                 color={item.isUser ? "#FFFFFF" : "#007AFF"} 
               />
-              <View style={styles.audioContent}>
-                <ThemedText style={[styles.audioText, item.isUser ? styles.userText : styles.botText]}>
-                  {isPlaying ? 'Playing...' : 'Audio message'}
-                </ThemedText>
-                <ThemedText style={[styles.audioDuration, item.isUser ? styles.userText : styles.botText]}>
-                  {item.audioDuration || '0:30'}
-                </ThemedText>
-              </View>
-              <View style={[styles.audioWaveform, item.isUser && styles.userAudioWaveform]}>
-                {[...Array(8)].map((_, i) => (
+              <ThemedText style={[styles.audioText, item.isUser ? styles.userText : styles.botText]}>
+                {item.audioDuration || '0:00'}
+              </ThemedText>
+              <View style={styles.waveform}>
+                {Array.from({ length: 12 }, (_, i) => (
                   <View 
                     key={i}
                     style={[
@@ -806,6 +954,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   audioWaveform: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    gap: 2,
+  },
+  waveform: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: 8,

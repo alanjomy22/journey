@@ -30,6 +30,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   type: string;
   content: string;
+  audio_file?: string;
 }
 
 // Base API service class
