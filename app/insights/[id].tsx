@@ -1,14 +1,15 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { mockJournalEntries } from '@/constants/mockData';
-import { useImageDescription, useChat, useAudioRecording } from '@/hooks';
-import { Image } from 'expo-image';
+import { useAudioRecording, useChat, useImageDescription } from '@/hooks';
 import { Audio } from 'expo-av';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -34,18 +35,29 @@ interface ChatMessage {
   isPlaying?: boolean;
   responseAudioUrl?: string; // For bot response audio files
   shouldAutoPlay?: boolean; // Flag to auto-play audio responses
+  showInput?: boolean; // Flag to show input after this message
+  inputText?: string; // Text in the input for this message
 }
 
 export default function InsightDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [imageDescription, setImageDescription] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sessionId, setSessionId] = useState<string>('');
   const [currentResponseAudio, setCurrentResponseAudio] = useState<Audio.Sound | null>(null);
+  const [isAutoRecording, setIsAutoRecording] = useState(false);
+  const [autoRecordingCancelled, setAutoRecordingCancelled] = useState(false);
+  const [bottomInputText, setBottomInputText] = useState('');
+  const [showTranscribing, setShowTranscribing] = useState(false);
+  const autoRecordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isAutoRecordingRef = useRef(false);
+  const autoRecordingCancelledRef = useRef(false);
+  
+  // Animation for listening gradient
+  const gradientAnimation = useRef(new Animated.Value(0)).current;
   
   // API hooks
   const { getDescription, loading: descriptionLoading, error: descriptionError } = useImageDescription();
@@ -202,7 +214,7 @@ export default function InsightDetailsScreen() {
     }
   };
 
-  const addStreamingBotMessage = (fullText: string, audioUrl?: string, shouldAutoPlay: boolean = false) => {
+  const addStreamingBotMessage = useCallback((fullText: string, audioUrl?: string, shouldAutoPlay: boolean = false, isFirstMessage: boolean = false) => {
     const messageId = Date.now().toString();
     
     // Add empty streaming message
@@ -214,7 +226,7 @@ export default function InsightDetailsScreen() {
       timestamp: new Date(),
       isStreaming: true,
       responseAudioUrl: audioUrl,
-      shouldAutoPlay,
+      shouldAutoPlay
     };
     
     setMessages(prev => [...prev, streamingMessage]);
@@ -243,12 +255,130 @@ export default function InsightDetailsScreen() {
           }, 500); // Small delay after text completion
         }
         
+        // Start auto-recording after first bot message completes
+        if (isLastWord && isFirstMessage) {
+          setTimeout(() => {
+            startAutoRecording();
+          }, 1000); // Start recording 1 second after message completes
+        }
+        
         // Scroll to bottom after each word
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 50);
       }, index * 100 + Math.random() * 100); // Random delay for more natural effect
     });
+  }, [playResponseAudio]);
+
+  // Function to start automatic 10-second recording
+  const startAutoRecording = async () => {
+    try {
+      console.log('🎤 Starting auto-recording for 10 seconds...');
+      setIsAutoRecording(true);
+      isAutoRecordingRef.current = true;
+      setAutoRecordingCancelled(false);
+      autoRecordingCancelledRef.current = false;
+      
+      // Start gradient animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(gradientAnimation, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: false,
+          }),
+          Animated.timing(gradientAnimation, {
+            toValue: 0,
+            duration: 1500,
+            useNativeDriver: false,
+          }),
+        ])
+      ).start();
+      
+      await startRecording();
+      
+      // Stop recording after 10 seconds and process transcription
+      autoRecordingTimerRef.current = setTimeout(async () => {
+        console.log('⏰ 10 seconds elapsed, stopping auto-recording...');
+        console.log('⏰ Current state - isAutoRecording:', isAutoRecordingRef.current, 'autoRecordingCancelled:', autoRecordingCancelledRef.current);
+        
+        // Check if recording was cancelled
+        if (autoRecordingCancelledRef.current) {
+          console.log('⏭️ Auto-recording was cancelled, skipping stop');
+          return;
+        }
+        
+        try {
+          // Always try to stop recording after 10 seconds
+          await stopRecording();
+          console.log('✅ Auto-recording completed, will process transcription');
+          
+          // Stop gradient animation
+          gradientAnimation.stopAnimation();
+          gradientAnimation.setValue(0);
+          
+          setIsAutoRecording(false);
+          isAutoRecordingRef.current = false;
+          autoRecordingTimerRef.current = null;
+        } catch (error) {
+          console.error('Error stopping auto-recording:', error);
+          setIsAutoRecording(false);
+          isAutoRecordingRef.current = false;
+          autoRecordingTimerRef.current = null;
+        }
+      }, 10000);
+    } catch (error) {
+      console.error('Failed to start auto recording:', error);
+      setIsAutoRecording(false);
+      isAutoRecordingRef.current = false;
+      setAutoRecordingCancelled(false);
+      autoRecordingCancelledRef.current = false;
+    }
+  };
+
+  // Function to cancel auto-recording when user starts typing (without transcription)
+  const cancelAutoRecording = async () => {
+    console.log('✋ cancelAutoRecording called. isAutoRecording:', isAutoRecordingRef.current, 'isRecording:', isRecording, 'hasTimer:', !!autoRecordingTimerRef.current);
+    
+    if (isAutoRecordingRef.current || autoRecordingTimerRef.current || isRecording) {
+      console.log('✋ Cancelling auto-recording due to user typing...');
+      setAutoRecordingCancelled(true);
+      autoRecordingCancelledRef.current = true;
+      
+      // Clear the timer first
+      if (autoRecordingTimerRef.current) {
+        clearTimeout(autoRecordingTimerRef.current);
+        autoRecordingTimerRef.current = null;
+        console.log('✅ Timer cleared');
+      }
+      
+      // Stop recording if it's active
+      if (isRecording) {
+        try {
+          await stopRecording();
+          console.log('✅ Recording stopped due to user input');
+        } catch (error) {
+          console.error('Error stopping recording:', error);
+        }
+      }
+      
+      // Stop gradient animation
+      gradientAnimation.stopAnimation();
+      gradientAnimation.setValue(0);
+      
+      // Clear recording without processing to prevent transcription
+      setTimeout(() => {
+        clearRecording();
+        setAutoRecordingCancelled(false);
+        autoRecordingCancelledRef.current = false;
+        console.log('✅ Recording cleared');
+      }, 300);
+      
+      setIsAutoRecording(false);
+      isAutoRecordingRef.current = false;
+    } else {
+      console.log('ℹ️ No auto-recording to cancel');
+    }
   };
 
   useEffect(() => {
@@ -269,7 +399,7 @@ export default function InsightDetailsScreen() {
         
         // Add bot's streaming response
         setTimeout(() => {
-          addStreamingBotMessage(chatResponse.content, chatResponse.audio_file, false);
+          addStreamingBotMessage(chatResponse.content, chatResponse.audio_file, false, true); // Mark as first message
           setIsAnalyzing(false);
         }, 1000);
       } catch (error) {
@@ -359,7 +489,7 @@ export default function InsightDetailsScreen() {
     return shuffled.slice(0, 3 + Math.floor(Math.random() * 3));
   };
 
-  const generateBotResponse = async (userInput: string, isAudioInput: boolean = false): Promise<{text: string, audioUrl?: string}> => {
+  const generateBotResponse = useCallback(async (userInput: string, isAudioInput: boolean = false): Promise<{text: string, audioUrl?: string}> => {
     try {
       // Use the chat API with the image description and session ID
       const response = await sendMessage(userInput, imageDescription, sessionId);
@@ -393,44 +523,8 @@ export default function InsightDetailsScreen() {
       
       return { text: contextualResponses[Math.floor(Math.random() * contextualResponses.length)] };
     }
-  };
+  }, [sendMessage, imageDescription, sessionId]);
 
-  const handleSendMessage = async () => {
-    if (inputText.trim()) {
-      const userMessage: ChatMessage = {
-        id: Date.now().toString(),
-        text: inputText.trim(),
-        type: 'text',
-        isUser: true,
-        timestamp: new Date(),
-      };
-
-      const messageText = inputText.trim();
-      setMessages(prev => [...prev, userMessage]);
-      setInputText('');
-      
-      // Add bot response with streaming effect
-      setTimeout(async () => {
-        try {
-          const botResponse = await generateBotResponse(messageText, false);
-          addStreamingBotMessage(botResponse.text, botResponse.audioUrl, false);
-        } catch (error) {
-          console.error('Error generating response:', error);
-          addStreamingBotMessage('I\'m having trouble processing that right now. Could you try rephrasing your message?', undefined, false);
-        }
-      }, 500 + Math.random() * 1000);
-    }
-  };
-
-  const handleAudioPress = async () => {
-    if (isRecording) {
-      // Stop recording and get the URI directly
-      await stopRecording();
-    } else {
-      // Start recording
-      await startRecording();
-    }
-  };
 
   // Handle transcription when recording stops and URI is available
   useEffect(() => {
@@ -438,32 +532,38 @@ export default function InsightDetailsScreen() {
       if (!isRecording && recordingUri && !isTranscribing) {
         console.log('🎤 Recording completed, starting transcription...', recordingUri);
         
-        // First, add the audio message to chat
-        const audioMessage: ChatMessage = {
-          id: Date.now().toString(),
-          type: 'audio',
-          audioUri: recordingUri,
-          audioDuration: formatDuration(duration),
-          isUser: true,
-          timestamp: new Date(),
-        };
+        // Skip transcription if this was auto-recording that was cancelled by typing
+        if (autoRecordingCancelledRef.current) {
+          console.log('⏭️ Skipping transcription for cancelled auto-recording');
+          clearRecording();
+          setAutoRecordingCancelled(false);
+          autoRecordingCancelledRef.current = false;
+          return;
+        }
         
-        setMessages(prev => [...prev, audioMessage]);
+        // Show transcribing status
+        setShowTranscribing(true);
         
+        // Skip adding audio message, go directly to transcription
         // Start transcription
         const transcribedText = await transcribeAudio(recordingUri);
+        
+        // Hide transcribing status
+        setShowTranscribing(false);
         
         if (transcribedText) {
           console.log('✅ Transcription completed:', transcribedText);
           
-          // Update the audio message with transcribed text
-          setMessages(prev => 
-            prev.map(msg => 
-              msg.id === audioMessage.id 
-                ? { ...msg, text: transcribedText }
-                : msg
-            )
-          );
+          // Add transcribed text as a user message
+          const transcribedMessage: ChatMessage = {
+            id: Date.now().toString(),
+            text: transcribedText,
+            type: 'text',
+            isUser: true,
+            timestamp: new Date(),
+          };
+          
+          setMessages(prev => [...prev, transcribedMessage]);
           
           // Send transcribed text to chat API
           setTimeout(async () => {
@@ -479,9 +579,6 @@ export default function InsightDetailsScreen() {
         } else {
           console.error('❌ Transcription failed');
           Alert.alert('Transcription Failed', 'Could not transcribe your audio. Please try recording again.');
-          
-          // Remove the failed audio message
-          setMessages(prev => prev.filter(msg => msg.id !== audioMessage.id));
         }
         
         // Clear the recording after processing
@@ -490,7 +587,7 @@ export default function InsightDetailsScreen() {
     };
 
     handleRecordingComplete();
-  }, [isRecording, recordingUri, isTranscribing, duration, transcribeAudio, clearRecording]);
+  }, [isRecording, recordingUri, isTranscribing, duration, transcribeAudio, clearRecording, autoRecordingCancelled, generateBotResponse, addStreamingBotMessage]);
 
   if (!entry) {
     return (
@@ -573,248 +670,250 @@ export default function InsightDetailsScreen() {
     }, 1000);
   };
 
-  const handleAttachmentPress = () => {
-    Alert.alert(
-      'Share Content',
-      'What would you like to share?',
-      [
-        { text: 'Take Photo', onPress: () => handleImagePicker('camera') },
-        { text: 'Choose Photo', onPress: () => handleImagePicker('gallery') },
-        { text: 'Upload File', onPress: handleFileUpload },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => (
-    <View style={[
-      styles.messageContainer,
-      item.isUser ? styles.userMessage : styles.botMessage
-    ]}>
-      <View style={[
-        styles.messageBubble,
-        item.isUser ? styles.userBubble : styles.botBubble,
-        item.type === 'image' && styles.imageBubble
-      ]}>
-        {item.type === 'image' && item.imageUri ? (
-          <Image
-            source={{ uri: item.imageUri }}
-            style={styles.messageImage}
-            contentFit="cover"
-          />
-        ) : item.type === 'audio' ? (
-          <View style={styles.audioMessageContainer}>
-            <TouchableOpacity 
-              style={styles.audioMessage}
-              onPress={async () => {
-                if (item.audioUri) {
-                  if (item.isPlaying) {
-                    await stopAudioMessage(item.id);
-                  } else {
-                    await playAudioMessage(item.audioUri, item.id);
-                  }
-                }
-              }}
-            >
-              <RemixIcon 
-                name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
-                size={24} 
-                color={item.isUser ? "#FFFFFF" : "#007AFF"} 
-              />
-              <ThemedText style={[styles.audioText, item.isUser ? styles.userText : styles.botText]}>
-                {item.audioDuration || '0:00'}
-              </ThemedText>
-              <View style={styles.waveform}>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <View 
-                    key={i}
-                    style={[
-                      styles.waveformBar,
-                      { 
-                        height: 4 + Math.random() * 16,
-                        backgroundColor: item.isUser ? 'rgba(255,255,255,0.7)' : '#007AFF'
-                      }
-                    ]} 
-                  />
-                ))}
-              </View>
-            </TouchableOpacity>
-            {/* Show transcribed text if available */}
-            {item.text && (
-              <View style={styles.transcriptionContainer}>
-                <ThemedText style={[styles.transcriptionText, item.isUser ? styles.userText : styles.botText]}>
-                  &ldquo;{item.text}&rdquo;
-                </ThemedText>
-              </View>
-            )}
-          </View>
-        ) : item.type === 'file' ? (
-          <TouchableOpacity style={styles.fileMessage}>
-            <View style={styles.fileIcon}>
-              <RemixIcon name="file-text-line" size={24} color={item.isUser ? "#FFFFFF" : "#007AFF"} />
-            </View>
-            <View style={styles.fileContent}>
-              <ThemedText style={[styles.fileName, item.isUser ? styles.userText : styles.botText]}>
-                {item.fileName || 'Document'}
-              </ThemedText>
-              <ThemedText style={[styles.fileSize, item.isUser ? styles.userText : styles.botText]}>
-                {item.fileSize || '1.2 MB'}
-              </ThemedText>
-            </View>
-            <RemixIcon name="download-line" size={20} color={item.isUser ? "#FFFFFF" : "#007AFF"} />
+  const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => (
+    <View style={styles.simpleMessageContainer}>
+      {/* Audio controls at the top of the message if it's an audio message */}
+      {item.type === 'audio' && item.audioUri && (
+        <View style={styles.audioControlsContainer}>
+          <TouchableOpacity 
+            style={styles.audioPlayButton}
+            onPress={async () => {
+              if (item.isPlaying) {
+                await stopAudioMessage(item.id);
+              } else {
+                await playAudioMessage(item.audioUri!, item.id);
+              }
+            }}
+          >
+            <RemixIcon 
+              name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
+              size={28} 
+              color="#007AFF" 
+            />
           </TouchableOpacity>
-        ) : (
-          <View style={styles.textMessageContainer}>
-            <ThemedText style={[
-              styles.messageText,
-              item.isUser ? styles.userText : styles.botText
-            ]}>
-              {item.text}
+          <View style={styles.audioInfo}>
+            <ThemedText style={styles.audioDurationText}>
+              {item.audioDuration || '0:00'}
             </ThemedText>
-            {item.isStreaming && (
-              <View style={styles.typingIndicator}>
-                <View style={[styles.typingDot, styles.typingDot1]} />
-                <View style={[styles.typingDot, styles.typingDot2]} />
-                <View style={[styles.typingDot, styles.typingDot3]} />
-              </View>
-            )}
+            <View style={styles.waveform}>
+              {Array.from({ length: 12 }, (_, i) => (
+                <View 
+                  key={i}
+                  style={[
+                    styles.waveformBar,
+                    { 
+                      height: 4 + Math.random() * 16,
+                      backgroundColor: '#007AFF'
+                    }
+                  ]} 
+                />
+              ))}
+            </View>
           </View>
-        )}
-        
-        {/* Timestamp */}
-        <ThemedText style={[
-          styles.timestamp,
-          item.isUser ? styles.userTimestamp : styles.botTimestamp
-        ]}>
-          {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </ThemedText>
-      </View>
+        </View>
+      )}
+      
+      {/* Simple message content without card or timestamp */}
+      {item.type === 'image' && item.imageUri ? (
+        <Image
+          source={{ uri: item.imageUri }}
+          style={styles.fullWidthMessageImage}
+          contentFit="cover"
+        />
+      ) : item.type === 'file' ? (
+        <TouchableOpacity style={styles.fileMessage}>
+          <View style={styles.fileIcon}>
+            <RemixIcon name="file-text-line" size={24} color="#007AFF" />
+          </View>
+          <View style={styles.fileContent}>
+            <ThemedText style={styles.fileName}>
+              {item.fileName || 'Document'}
+            </ThemedText>
+            <ThemedText style={styles.fileSize}>
+              {item.fileSize || '1.2 MB'}
+            </ThemedText>
+          </View>
+          <RemixIcon name="download-line" size={20} color="#007AFF" />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.simpleTextContainer}>
+          <ThemedText style={[
+            styles.simpleMessageText,
+            item.isUser ? styles.userTextColor : styles.botTextColor
+          ]}>
+            {item.text}
+          </ThemedText>
+          {item.isStreaming && (
+            <View style={styles.typingIndicator}>
+              <View style={[styles.typingDot, styles.typingDot1]} />
+              <View style={[styles.typingDot, styles.typingDot2]} />
+              <View style={[styles.typingDot, styles.typingDot3]} />
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
+  
+  // Handle sending message from bottom input
+  const handleBottomMessageSend = async (text: string) => {
+    // Create user message
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      text: text,
+      type: 'text',
+      isUser: true,
+      timestamp: new Date(),
+    };
+    
+    // Add message and clear input
+    setMessages(prev => [...prev, userMessage]);
+    setBottomInputText('');
+    
+    // Scroll to bottom after adding message
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    
+    // Generate bot response
+    setTimeout(async () => {
+      try {
+        const botResponse = await generateBotResponse(text, false);
+        addStreamingBotMessage(botResponse.text, botResponse.audioUrl, false);
+      } catch (error) {
+        console.error('Error generating response:', error);
+        addStreamingBotMessage('I\'m having trouble processing that right now. Could you try rephrasing your message?', undefined, false);
+      }
+    }, 500 + Math.random() * 1000);
+  };
 
   return (
     <KeyboardAvoidingView 
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Top Navigation */}
+      <View style={styles.topNavigation}>
         <TouchableOpacity 
-          style={styles.backButton}
+          style={styles.navButton}
           onPress={() => router.back()}
         >
-          <RemixIcon name="arrow-left-line" size={24} color="#007AFF" />
+          <RemixIcon name="arrow-left-line" size={24} color="#333" />
         </TouchableOpacity>
-        <View style={styles.headerContent}>
-          <ThemedText type="defaultSemiBold" style={styles.headerTitle}>
-            {entry.day} Insights
-          </ThemedText>
-          <ThemedText style={styles.headerSubtitle}>
-            {entry.date}
-          </ThemedText>
-        </View>
-        <View style={styles.placeholder} />
+        <TouchableOpacity 
+          style={styles.navButton}
+          onPress={() => handleImagePicker('gallery')}
+        >
+          <RemixIcon name="add-line" size={24} color="#333" />
+        </TouchableOpacity>
       </View>
 
-      {/* Journal Entry Preview */}
-      <View style={styles.entryPreview}>
-        <Image
-          source={{ uri: entry.image }}
-          style={styles.previewImage}
-          contentFit="cover"
+      {/* Messages Container - Limited to top half */}
+      <View style={styles.messagesContainer}>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          style={styles.chatContainer}
+          contentContainerStyle={styles.chatContent}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            // Auto-scroll to bottom when content changes
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }}
+          onLayout={() => {
+            // Auto-scroll to bottom when layout changes
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }}
+          ListFooterComponent={() => (
+            messages.length > 0 ? (
+              <View style={styles.inputFooterContainer}>
+                {/* Show transcribing message in place of input */}
+                {(isTranscribing || showTranscribing) ? (
+                  <View style={styles.inlineInputContainer}>
+                    <ThemedText style={styles.transcribingPlaceholderText}>
+                      Transcribing...
+                    </ThemedText>
+                  </View>
+                ) : (chatLoading || descriptionLoading) ? (
+                  <View style={styles.inlineInputContainer}>
+                    <ThemedText style={styles.transcribingPlaceholderText}>
+                      Thinking...
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <View style={styles.inlineInputContainer}>
+                    <TextInput
+                      key="chat-input" // Add key to prevent re-mounting
+                      style={styles.inlineTextInput}
+                      placeholder="Type your response..."
+                      placeholderTextColor="#8E8E93"
+                      value={bottomInputText}
+                      onFocus={async () => {
+                        await cancelAutoRecording();
+                      }}
+                      onChangeText={async (text) => {
+                        if (text.length > 0) {
+                          await cancelAutoRecording();
+                        }
+                        setBottomInputText(text);
+                      }}
+                      onSubmitEditing={() => {
+                        if (bottomInputText.trim()) {
+                          handleBottomMessageSend(bottomInputText.trim());
+                        }
+                      }}
+                      multiline
+                      maxLength={500}
+                      blurOnSubmit={false}
+                      returnKeyType="send"
+                    />
+                    {bottomInputText.trim() && (
+                      <TouchableOpacity
+                        style={styles.inlineSendButton}
+                        onPress={() => handleBottomMessageSend(bottomInputText.trim())}
+                      >
+                        <RemixIcon name="send-plane-fill" size={16} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+            ) : null
+          )}
         />
-        <View style={styles.previewContent}>
-          <ThemedText style={styles.previewText}>
-            {entry.preview}
-          </ThemedText>
-        </View>
       </View>
 
-      {/* Chat Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        style={styles.chatContainer}
-        contentContainerStyle={styles.chatContent}
-        showsVerticalScrollIndicator={false}
-      />
+      {/* Transcription Status - Removed from here, now shown inline */}
 
-      {/* Recording Status */}
-      {isRecording && (
-        <View style={styles.recordingStatus}>
-          <View style={styles.recordingIndicator}>
-            <View style={styles.recordingDot} />
-            <ThemedText style={styles.recordingText}>
-              Recording... {formatDuration(duration)}
+      {/* Animated Yellow Gradient Background when listening */}
+      {(isRecording || isAutoRecording) && (
+        <View style={styles.listeningOverlay}>
+          <Animated.View 
+            style={[
+              styles.animatedGradient,
+              {
+                opacity: gradientAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.6, 0.9],
+                }),
+              },
+            ]} 
+          />
+          <View style={styles.listeningContent}>
+            <ThemedText style={styles.listeningText}>
+              Listening...
             </ThemedText>
           </View>
         </View>
       )}
-
-      {/* Transcription Status */}
-      {isTranscribing && (
-        <View style={styles.transcriptionStatus}>
-          <ThemedText style={styles.transcriptionStatusText}>
-            🎤 Transcribing audio...
-          </ThemedText>
-        </View>
-      )}
-
-      {/* Input Area */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
-          <TouchableOpacity
-            style={styles.attachmentButton}
-            onPress={handleAttachmentPress}
-          >
-            <RemixIcon name="attachment-line" size={24} color="#8E8E93" />
-          </TouchableOpacity>
-          
-          <TextInput
-            style={styles.textInput}
-            placeholder="Share your thoughts..."
-            placeholderTextColor="#8E8E93"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={500}
-          />
-          
-          {inputText.trim() ? (
-            <TouchableOpacity
-              style={styles.sendButton}
-              onPress={handleSendMessage}
-            >
-              <RemixIcon name="send-plane-fill" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-          ) : isTranscribing ? (
-            <TouchableOpacity
-              style={[styles.audioButton, { backgroundColor: '#FFF3CD' }]}
-              disabled={true}
-            >
-              <RemixIcon 
-                name="loader-4-line" 
-                size={20} 
-                color="#856404" 
-              />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.audioButton, isRecording && styles.audioButtonRecording]}
-              onPress={handleAudioPress}
-              disabled={isTranscribing}
-            >
-              <RemixIcon 
-                name={isRecording ? "stop-circle-fill" : "mic-fill"} 
-                size={20} 
-                color={isRecording ? "#FF3B30" : "#8E8E93"} 
-              />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+      
+      {/* Tick Button at Bottom Right */}
+      <TouchableOpacity style={styles.tickButton}>
+        <RemixIcon name="check-line" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
     </KeyboardAvoidingView>
   );
 }
@@ -822,7 +921,7 @@ export default function InsightDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#FDF6E3', // Cream background
   },
   header: {
     flexDirection: 'row',
@@ -891,7 +990,7 @@ const styles = StyleSheet.create({
   },
   chatContent: {
     paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingBottom: 8, // Reduced bottom padding
   },
   messageContainer: {
     marginBottom: 12,
@@ -901,6 +1000,191 @@ const styles = StyleSheet.create({
   },
   botMessage: {
     alignItems: 'flex-start',
+  },
+  // New linear message styles
+  linearMessageContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  audioControlsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  audioPlayButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  audioInfo: {
+    flex: 1,
+  },
+  audioDurationText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  linearMessageBubble: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  userTextColor: {
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  botTextColor: {
+    color: '#333',
+  },
+  linearTimestamp: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'right',
+  },
+  inlineInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: '#FDF6E3', // Match cream background
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
+    minHeight: 44,
+  },
+  inlineTextInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    maxHeight: 80,
+    fontFamily: 'PlusJakartaSans-Medium',
+  },
+  inlineSendButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  // Direct image display styles
+  directImageContainer: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  directImage: {
+    width: '100%',
+    height: 200,
+  },
+  // Simple message styles (no cards)
+  simpleMessageContainer: {
+    marginBottom: 4, // Further reduced gap between messages
+    paddingHorizontal: 16,
+  },
+  simpleTextContainer: {
+    paddingVertical: 8,
+  },
+  simpleMessageText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600', // Bolder text
+    color: '#2C1810', // Darker text for better contrast on cream
+    fontFamily: 'PlusJakartaSans-SemiBold',
+  },
+  // Bottom input styles
+  bottomInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    minHeight: 44,
+  },
+  bottomTextInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    maxHeight: 80,
+  },
+  bottomSendButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  // Animated listening overlay styles
+  listeningOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 100,
+  },
+  animatedGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFD60A',
+    opacity: 0.85,
+  },
+  listeningContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  listeningText: {
+    color: '#8B4513',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   messageBubble: {
     maxWidth: '80%',
@@ -1155,5 +1439,72 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  // Top navigation styles
+  topNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    backgroundColor: '#FDF6E3',
+  },
+  navButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Full width image style
+  fullWidthMessageImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginVertical: 8,
+  },
+  // Messages container - more than half but not full screen
+  messagesContainer: {
+    flex: 0.7, // Take up 70% of the screen
+    marginTop: 16,
+  },
+  // Input section - remaining space
+  inputSection: {
+    flex: 0.3, // Take up the remaining 30%
+    justifyContent: 'flex-start',
+    paddingTop: 8, // Reduced padding between messages and input
+  },
+  // Input footer container
+  inputFooterContainer: {
+    marginTop: 4, // Small gap between last message and input
+    paddingHorizontal: 0, // Remove horizontal padding since it's in the parent
+  },
+  // Transcribing placeholder text (styled like input placeholder)
+  transcribingPlaceholderText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#8E8E93', // Same color as placeholder
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontStyle: 'italic', // Make it look like placeholder
+  },
+  // Tick button style
+  tickButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#8B4513',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });
