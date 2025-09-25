@@ -15,6 +15,9 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: {
+          display: 'flex',
+        },
       }}>
       <Tabs.Screen
         name="index"
@@ -35,6 +38,7 @@ export default function TabLayout() {
         options={{
           title: 'New Post',
           tabBarIcon: ({ color }) => <RemixIcon name="add-box-line" size={28} color={color} />,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
