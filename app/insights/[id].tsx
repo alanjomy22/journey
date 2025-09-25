@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { mockJournalEntries } from '@/constants/mockData';
-import { useImageDescription, useChat } from '@/hooks';
+import { useImageDescription, useChat, useAudioRecording } from '@/hooks';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -37,7 +37,6 @@ export default function InsightDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [imageDescription, setImageDescription] = useState<string>('');
@@ -47,9 +46,62 @@ export default function InsightDetailsScreen() {
   // API hooks
   const { getDescription, loading: descriptionLoading, error: descriptionError } = useImageDescription();
   const { sendMessage, loading: chatLoading, error: chatError } = useChat();
+  const {
+    isRecording,
+    isPlaying,
+    isTranscribing,
+    recordingUri,
+    duration,
+    error: audioError,
+    startRecording,
+    stopRecording,
+    playRecording,
+    stopPlayback,
+    transcribeAudio,
+    clearRecording,
+    resetError: resetAudioError,
+  } = useAudioRecording();
 
   // Find the journal entry
   const entry = mockJournalEntries.find(e => e.id === id);
+
+  const addStreamingBotMessage = (fullText: string) => {
+    const messageId = Date.now().toString();
+    
+    // Add empty streaming message
+    const streamingMessage: ChatMessage = {
+      id: messageId,
+      text: '',
+      type: 'text',
+      isUser: false,
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    
+    setMessages(prev => [...prev, streamingMessage]);
+    
+    // Split text into words for streaming effect
+    const words = fullText.split(' ');
+    let currentText = '';
+    
+    words.forEach((word, index) => {
+      setTimeout(() => {
+        currentText += (index === 0 ? '' : ' ') + word;
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === messageId 
+              ? { ...msg, text: currentText, isStreaming: index < words.length - 1 }
+              : msg
+          )
+        );
+        
+        // Scroll to bottom after each word
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 50);
+      }, index * 100 + Math.random() * 100); // Random delay for more natural effect
+    });
+  };
 
   useEffect(() => {
     const handleInitialImageAnalysis = async (imageUri: string) => {
@@ -108,16 +160,20 @@ export default function InsightDetailsScreen() {
     if (chatError) {
       console.warn('Chat error:', chatError);
     }
-  }, [descriptionError, chatError]);
+    if (audioError) {
+      console.warn('Audio error:', audioError);
+      Alert.alert('Audio Error', audioError);
+      resetAudioError();
+    }
+  }, [descriptionError, chatError, audioError, resetAudioError]);
 
 
-  if (!entry) {
-    return (
-      <ThemedView style={styles.container}>
-        <ThemedText>Entry not found</ThemedText>
-      </ThemedView>
-    );
-  }
+  // Helper function to format duration
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const generateImageResponse = (): string => {
     const responses = [
@@ -186,44 +242,6 @@ export default function InsightDetailsScreen() {
     }
   };
 
-  const addStreamingBotMessage = (fullText: string) => {
-    const messageId = Date.now().toString();
-    
-    // Add empty streaming message
-    const streamingMessage: ChatMessage = {
-      id: messageId,
-      text: '',
-      type: 'text',
-      isUser: false,
-      timestamp: new Date(),
-      isStreaming: true,
-    };
-    
-    setMessages(prev => [...prev, streamingMessage]);
-    
-    // Split text into words for streaming effect
-    const words = fullText.split(' ');
-    let currentText = '';
-    
-    words.forEach((word, index) => {
-      setTimeout(() => {
-        currentText += (index === 0 ? '' : ' ') + word;
-        setMessages(prev => 
-          prev.map(msg => 
-            msg.id === messageId 
-              ? { ...msg, text: currentText, isStreaming: index < words.length - 1 }
-              : msg
-          )
-        );
-        
-        // Scroll to bottom after each word
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 50);
-      }, index * 100 + Math.random() * 100); // Random delay for more natural effect
-    });
-  };
-
   const handleSendMessage = async () => {
     if (inputText.trim()) {
       const userMessage: ChatMessage = {
@@ -253,31 +271,80 @@ export default function InsightDetailsScreen() {
 
   const handleAudioPress = async () => {
     if (isRecording) {
-      // Stop recording
-      setIsRecording(false);
-      
-      // Simulate audio recording completion
-      const audioMessage: ChatMessage = {
-        id: Date.now().toString(),
-        type: 'audio',
-        audioUri: 'mock-audio-uri',
-        audioDuration: '0:' + (15 + Math.floor(Math.random() * 45)).toString().padStart(2, '0'),
-        isUser: true,
-        timestamp: new Date(),
-      };
-      
-      setMessages(prev => [...prev, audioMessage]);
-      
-      // Bot responds to audio
-      setTimeout(() => {
-        addStreamingBotMessage('I can hear the emotion in your voice. That sounds like it was really meaningful to you. Can you tell me more about what you were experiencing?');
-      }, 1000);
+      // Stop recording and get the URI directly
+      await stopRecording();
     } else {
       // Start recording
-      setIsRecording(true);
-      Alert.alert('Recording', 'Audio recording started! Tap the mic again to stop.');
+      await startRecording();
     }
   };
+
+  // Handle transcription when recording stops and URI is available
+  useEffect(() => {
+    const handleRecordingComplete = async () => {
+      if (!isRecording && recordingUri && !isTranscribing) {
+        console.log('🎤 Recording completed, starting transcription...', recordingUri);
+        
+        // First, add the audio message to chat
+        const audioMessage: ChatMessage = {
+          id: Date.now().toString(),
+          type: 'audio',
+          audioUri: recordingUri,
+          audioDuration: formatDuration(duration),
+          isUser: true,
+          timestamp: new Date(),
+        };
+        
+        setMessages(prev => [...prev, audioMessage]);
+        
+        // Start transcription
+        const transcribedText = await transcribeAudio(recordingUri);
+        
+        if (transcribedText) {
+          console.log('✅ Transcription completed:', transcribedText);
+          
+          // Update the audio message with transcribed text
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === audioMessage.id 
+                ? { ...msg, text: transcribedText }
+                : msg
+            )
+          );
+          
+          // Send transcribed text to chat API
+          setTimeout(async () => {
+            try {
+              const botResponse = await generateBotResponse(transcribedText);
+              addStreamingBotMessage(botResponse);
+            } catch (error) {
+              console.error('Error generating response:', error);
+              addStreamingBotMessage('I heard your message but I\'m having trouble processing it right now. Could you try again?');
+            }
+          }, 500);
+        } else {
+          console.error('❌ Transcription failed');
+          Alert.alert('Transcription Failed', 'Could not transcribe your audio. Please try recording again.');
+          
+          // Remove the failed audio message
+          setMessages(prev => prev.filter(msg => msg.id !== audioMessage.id));
+        }
+        
+        // Clear the recording after processing
+        clearRecording();
+      }
+    };
+
+    handleRecordingComplete();
+  }, [isRecording, recordingUri, isTranscribing, duration, transcribeAudio, clearRecording]);
+
+  if (!entry) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText>Entry not found</ThemedText>
+      </ThemedView>
+    );
+  }
 
   const handleImagePicker = async (source: 'camera' | 'gallery') => {
     try {
@@ -382,47 +449,57 @@ export default function InsightDetailsScreen() {
             contentFit="cover"
           />
         ) : item.type === 'audio' ? (
-          <TouchableOpacity 
-            style={styles.audioMessage}
-            onPress={() => {
-              // Toggle play state
-              setMessages(prev => 
-                prev.map(msg => 
-                  msg.id === item.id 
-                    ? { ...msg, isPlaying: !msg.isPlaying }
-                    : msg
-                )
-              );
-            }}
-          >
-            <RemixIcon 
-              name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
-              size={32} 
-              color={item.isUser ? "#FFFFFF" : "#007AFF"} 
-            />
-            <View style={styles.audioContent}>
-              <ThemedText style={[styles.audioText, item.isUser ? styles.userText : styles.botText]}>
-                {item.isPlaying ? 'Playing...' : 'Audio message'}
-              </ThemedText>
-              <ThemedText style={[styles.audioDuration, item.isUser ? styles.userText : styles.botText]}>
-                {item.audioDuration || '0:30'}
-              </ThemedText>
-            </View>
-            <View style={[styles.audioWaveform, item.isUser && styles.userAudioWaveform]}>
-              {[...Array(8)].map((_, i) => (
-                <View 
-                  key={i}
-                  style={[
-                    styles.waveformBar,
-                    { 
-                      height: 4 + Math.random() * 16,
-                      backgroundColor: item.isUser ? 'rgba(255,255,255,0.7)' : '#007AFF'
-                    }
-                  ]} 
-                />
-              ))}
-            </View>
-          </TouchableOpacity>
+          <View style={styles.audioMessageContainer}>
+            <TouchableOpacity 
+              style={styles.audioMessage}
+              onPress={async () => {
+                if (item.audioUri && item.isUser) {
+                  if (isPlaying) {
+                    await stopPlayback();
+                  } else {
+                    // Set the recording URI to play this specific audio
+                    await playRecording();
+                  }
+                }
+              }}
+            >
+              <RemixIcon 
+                name={isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
+                size={32} 
+                color={item.isUser ? "#FFFFFF" : "#007AFF"} 
+              />
+              <View style={styles.audioContent}>
+                <ThemedText style={[styles.audioText, item.isUser ? styles.userText : styles.botText]}>
+                  {isPlaying ? 'Playing...' : 'Audio message'}
+                </ThemedText>
+                <ThemedText style={[styles.audioDuration, item.isUser ? styles.userText : styles.botText]}>
+                  {item.audioDuration || '0:30'}
+                </ThemedText>
+              </View>
+              <View style={[styles.audioWaveform, item.isUser && styles.userAudioWaveform]}>
+                {[...Array(8)].map((_, i) => (
+                  <View 
+                    key={i}
+                    style={[
+                      styles.waveformBar,
+                      { 
+                        height: 4 + Math.random() * 16,
+                        backgroundColor: item.isUser ? 'rgba(255,255,255,0.7)' : '#007AFF'
+                      }
+                    ]} 
+                  />
+                ))}
+              </View>
+            </TouchableOpacity>
+            {/* Show transcribed text if available */}
+            {item.text && (
+              <View style={styles.transcriptionContainer}>
+                <ThemedText style={[styles.transcriptionText, item.isUser ? styles.userText : styles.botText]}>
+                  &ldquo;{item.text}&rdquo;
+                </ThemedText>
+              </View>
+            )}
+          </View>
         ) : item.type === 'file' ? (
           <TouchableOpacity style={styles.fileMessage}>
             <View style={styles.fileIcon}>
@@ -516,6 +593,27 @@ export default function InsightDetailsScreen() {
         showsVerticalScrollIndicator={false}
       />
 
+      {/* Recording Status */}
+      {isRecording && (
+        <View style={styles.recordingStatus}>
+          <View style={styles.recordingIndicator}>
+            <View style={styles.recordingDot} />
+            <ThemedText style={styles.recordingText}>
+              Recording... {formatDuration(duration)}
+            </ThemedText>
+          </View>
+        </View>
+      )}
+
+      {/* Transcription Status */}
+      {isTranscribing && (
+        <View style={styles.transcriptionStatus}>
+          <ThemedText style={styles.transcriptionStatusText}>
+            🎤 Transcribing audio...
+          </ThemedText>
+        </View>
+      )}
+
       {/* Input Area */}
       <View style={styles.inputContainer}>
         <View style={styles.inputWrapper}>
@@ -543,10 +641,22 @@ export default function InsightDetailsScreen() {
             >
               <RemixIcon name="send-plane-fill" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+          ) : isTranscribing ? (
+            <TouchableOpacity
+              style={[styles.audioButton, { backgroundColor: '#FFF3CD' }]}
+              disabled={true}
+            >
+              <RemixIcon 
+                name="loader-4-line" 
+                size={20} 
+                color="#856404" 
+              />
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={[styles.audioButton, isRecording && styles.audioButtonRecording]}
               onPress={handleAudioPress}
+              disabled={isTranscribing}
             >
               <RemixIcon 
                 name={isRecording ? "stop-circle-fill" : "mic-fill"} 
@@ -836,5 +946,60 @@ const styles = StyleSheet.create({
   },
   audioButtonRecording: {
     backgroundColor: '#FFE5E5',
+  },
+  audioMessageContainer: {
+    width: '100%',
+  },
+  transcriptionContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  transcriptionText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    opacity: 0.9,
+  },
+  recordingStatus: {
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  recordingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+  },
+  recordingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  transcriptionStatus: {
+    backgroundColor: '#FFF3CD',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFEAA7',
+  },
+  transcriptionStatusText: {
+    color: '#856404',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });
