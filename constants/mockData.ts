@@ -114,3 +114,54 @@ export const mockProfileData = {
     followers: '1.2K',
     following: 890,
 };
+
+export const mockJournalEntries = [
+    {
+        id: '1',
+        day: 'Monday',
+        date: '2024-01-01',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop',
+        preview: 'Had a wonderful day at the beach. The waves were perfect and the sunset was breathtaking.',
+    },
+    {
+        id: '2',
+        day: 'Tuesday',
+        date: '2024-01-02',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=300&fit=crop',
+        preview: 'Took a peaceful walk through the autumn forest. The golden leaves created a magical atmosphere.',
+    },
+    {
+        id: '3',
+        day: 'Wednesday',
+        date: '2024-01-03',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1470509037663-253afd7f0f51?w=400&h=300&fit=crop',
+        preview: 'Discovered a beautiful sunflower field today. Nature never fails to amaze me.',
+    },
+    {
+        id: '4',
+        day: 'Thursday',
+        date: '2024-01-04',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
+        preview: 'Mountain hiking adventure! The valley views were absolutely stunning.',
+    },
+    {
+        id: '5',
+        day: 'Friday',
+        date: '2024-01-05',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
+        preview: 'Evening by the lake was so serene. Perfect way to end the week.',
+    },
+    {
+        id: '6',
+        day: 'Saturday',
+        date: '2024-01-06',
+        month: 'January',
+        image: 'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=400&h=300&fit=crop',
+        preview: 'Quiet morning by the lake with coffee and reflection. Feeling grateful.',
+    },
+];

@@ -44,8 +44,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="activity"
         options={{
-          title: 'Activity',
-          tabBarIcon: ({ color }) => <RemixIcon name="heart-line" size={28} color={color} />,
+          title: 'Insights',
+          tabBarIcon: ({ color }) => <RemixIcon name="lightbulb-line" size={28} color={color} />,
         }}
       />
       <Tabs.Screen
