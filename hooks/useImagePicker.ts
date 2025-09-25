@@ -15,6 +15,7 @@ export interface UseImagePickerReturn {
     selectedImages: ImagePickerResult[];
     pickImageFromGallery: () => Promise<void>;
     pickImageFromCamera: () => Promise<void>;
+    addCapturedImage: (image: ImagePickerResult) => void;
     clearImages: () => void;
     removeImage: (index: number) => void;
     isPicking: boolean;
@@ -122,6 +123,10 @@ export const useImagePicker = (): UseImagePickerReturn => {
         setSelectedImages([]);
     };
 
+    const addCapturedImage = (image: ImagePickerResult) => {
+        setSelectedImages(prev => [...prev, image]);
+    };
+
     const removeImage = (index: number) => {
         setSelectedImages(prev => prev.filter((_, i) => i !== index));
     };
@@ -130,6 +135,7 @@ export const useImagePicker = (): UseImagePickerReturn => {
         selectedImages,
         pickImageFromGallery,
         pickImageFromCamera,
+        addCapturedImage,
         clearImages,
         removeImage,
         isPicking,

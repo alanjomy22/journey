@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { mockJournalEntries } from '@/constants/mockData';
 import { useAudioRecording, useChat, useImageDescription } from '@/hooks';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -78,8 +79,31 @@ export default function InsightDetailsScreen() {
     resetError: resetAudioError,
   } = useAudioRecording();
 
-  // Find the journal entry
-  const entry = mockJournalEntries.find(e => e.id === id);
+  // Find the journal entry from mock data or AsyncStorage
+  const [entry, setEntry] = useState(mockJournalEntries.find(e => e.id === id));
+
+  useEffect(() => {
+    const loadJournalEntry = async () => {
+      // First try mock data
+      let journalEntry = mockJournalEntries.find(e => e.id === id);
+      
+      // If not found in mock data, try AsyncStorage (for captured images)
+      if (!journalEntry && id) {
+        try {
+          const storedData = await AsyncStorage.getItem(`journal_${id}`);
+          if (storedData) {
+            journalEntry = JSON.parse(storedData);
+          }
+        } catch (error) {
+          console.error('Error loading journal entry:', error);
+        }
+      }
+      
+      setEntry(journalEntry);
+    };
+
+    loadJournalEntry();
+  }, [id]);
 
   // Function to play response audio
   const playResponseAudio = async (audioUrl: string) => {
