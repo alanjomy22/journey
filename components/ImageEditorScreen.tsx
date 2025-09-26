@@ -1,3 +1,4 @@
+import { checkStorageHealth, emergencyCleanup } from '@/utils/storageUtils';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,9 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
-  Image,
   ImageBackground,
-  Modal,
   PanResponder,
   ScrollView,
   StatusBar,
@@ -17,7 +16,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import {
   Gesture,
@@ -93,7 +92,6 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
   const [textSize, setTextSize] = useState(24);
   const [showCropModal, setShowCropModal] = useState(false);
   const [messageText, setMessageText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showTextPicker, setShowTextPicker] = useState(false);
 
@@ -135,7 +133,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
             color: strokeColor,
             strokeWidth,
           };
-          
+
           setEdits((prev) => ({
             ...prev,
             [activeImageIndex]: {
@@ -143,7 +141,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
               texts: prev[activeImageIndex]?.texts || [],
             },
           }));
-          
+
           setCurrentPath('');
           setIsDrawing(false);
         }
@@ -162,31 +160,6 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
     return edits[activeImageIndex] || { paths: [], texts: [], stickers: [] };
   };
 
-  // Switch image
-  const switchImage = useCallback((index: number) => {
-    setActiveImageIndex(index);
-    setToolMode('none');
-  }, []);
-
-  // Remove image
-  const handleRemoveImage = useCallback((index: number) => {
-    if (onRemoveImage) {
-      onRemoveImage(index);
-      
-      // Adjust active index if needed
-      if (index === activeImageIndex) {
-        // If removing the currently active image
-        if (images.length > 1) {
-          // Move to previous image, or first image if removing the first one
-          const newIndex = index > 0 ? index - 1 : 0;
-          setActiveImageIndex(newIndex);
-        }
-      } else if (index < activeImageIndex) {
-        // If removing an image before the active one, adjust the active index
-        setActiveImageIndex(activeImageIndex - 1);
-      }
-    }
-  }, [onRemoveImage, activeImageIndex, images.length]);
 
   // Add text using TextPicker
   const addText = useCallback(() => {
@@ -293,7 +266,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         [{ crop: { originX: 0, originY: 0, width: 0.8, height: 0.8 } }],
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
-      
+
       // Update the image in the array (in a real app, you'd update the parent state)
       Alert.alert('Success', 'Image cropped successfully!');
       setShowCropModal(false);
@@ -305,18 +278,37 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
   // Capture the edited image with all layers (optimized)
   const captureEditedImage = useCallback(async () => {
     if (isCapturing) return; // Prevent multiple captures
-    
+
     try {
       setIsCapturing(true);
+
+      // Check storage health before capturing
+      const storageHealth = await checkStorageHealth();
+      if (!storageHealth.isHealthy) {
+        console.warn('Storage warning:', storageHealth.warning);
+        // Try emergency cleanup if storage is full
+        if (storageHealth.warning?.includes('full')) {
+          const cleaned = await emergencyCleanup();
+          if (!cleaned) {
+            Alert.alert(
+              'Storage Full',
+              'Your device storage is full. Please free up space and try again.',
+              [{ text: 'OK' }]
+            );
+            return;
+          }
+        }
+      }
+
       console.log('Starting optimized capture process...');
-      
+
       // Reduced delay for faster capture
       await new Promise(resolve => setTimeout(resolve, 100));
 
       console.log('Attempting to capture view...');
-      
+
       let uri: string;
-      
+
       // Optimized capture settings for faster processing
       const captureOptions = {
         format: 'jpg' as const,
@@ -325,7 +317,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         width: Math.min(screenWidth, 800), // Limit width for faster processing
         height: Math.min(screenHeight - 200, 600), // Limit height
       };
-      
+
       // Try captureRef first
       if (captureViewRef.current) {
         try {
@@ -358,23 +350,15 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
 
       const imageDataUri = `data:image/jpeg;base64,${uri}`;
       const message = messageText.trim() || undefined;
-      
+
       console.log('Optimized capture complete:');
       console.log('Final base64 length:', uri.length);
       console.log('Estimated size:', Math.round(uri.length * 3 / 4 / 1024), 'KB');
 
-      // Store the data in AsyncStorage (this is fast)
-      const dataKey = `captured_image_${Date.now()}`;
-      await AsyncStorage.setItem(dataKey, JSON.stringify({
-        imageUri: imageDataUri,
-        base64Data: uri,
-        messageText: message,
-      }));
-
       // Create a new journal entry with the captured image
       const newJournalEntryId = `captured_${Date.now()}`;
-      
-      // Store the captured image data as a journal entry
+
+      // Store only the journal entry (avoid duplicate storage)
       await AsyncStorage.setItem(`journal_${newJournalEntryId}`, JSON.stringify({
         id: newJournalEntryId,
         day: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
@@ -383,8 +367,9 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         image: imageDataUri, // Use the captured image URI
         preview: message || 'Captured a moment worth remembering...',
         base64Data: uri, // Store base64 data for reference
+        messageText: message, // Include message text in journal entry
       }));
-      
+
       // Navigate to insights page with the new journal entry
       router.push({
         pathname: '/insights/[id]',
@@ -394,7 +379,27 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
       });
     } catch (error) {
       console.error('Error capturing image:', error);
-      Alert.alert('Error', `Failed to capture image: ${error.message}`);
+
+      // Handle SQLite_FULL error specifically
+      if (error instanceof Error && error.message.includes('SQLITE_FULL')) {
+        console.log('Storage full error detected, attempting emergency cleanup...');
+        const cleaned = await emergencyCleanup();
+        if (cleaned) {
+          Alert.alert(
+            'Storage Cleaned',
+            'Old entries have been removed to free up space. Please try capturing again.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Storage Full',
+            'Your device storage is full. Please free up space in your device settings and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        Alert.alert('Error', `Failed to capture image: ${error.message}`);
+      }
     } finally {
       setIsCapturing(false);
     }
@@ -474,23 +479,23 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         <Animated.View style={[styles.draggableText, animatedStyle]}>
           {isEditing ? (
             <View style={styles.textEditContainer}>
-                  <TextInput
-                    style={[
-                      styles.draggableTextInput,
-                      {
-                        color: textElement.color,
-                        fontSize: textElement.fontSize,
-                        fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
-                      },
-                    ]}
-                    value={editText}
-                    onChangeText={setEditText}
-                    onSubmitEditing={handleTextSubmit}
-                    onBlur={handleTextSubmit}
-                    autoFocus
-                    multiline
-                    selectTextOnFocus
-                  />
+              <TextInput
+                style={[
+                  styles.draggableTextInput,
+                  {
+                    color: textElement.color,
+                    fontSize: textElement.fontSize,
+                    fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                  },
+                ]}
+                value={editText}
+                onChangeText={setEditText}
+                onSubmitEditing={handleTextSubmit}
+                onBlur={handleTextSubmit}
+                autoFocus
+                multiline
+                selectTextOnFocus
+              />
               <View style={styles.textEditButtons}>
                 <TouchableOpacity
                   style={styles.textEditButton}
@@ -508,18 +513,18 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
             </View>
           ) : (
             <TouchableOpacity onPress={handleTextPress} style={styles.textContainer}>
-                  <Text
-                    style={[
-                      styles.textElement,
-                      {
-                        color: textElement.color,
-                        fontSize: textElement.fontSize,
-                        fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
-                      },
-                    ]}
-                  >
-                    {textElement.content}
-                  </Text>
+              <Text
+                style={[
+                  styles.textElement,
+                  {
+                    color: textElement.color,
+                    fontSize: textElement.fontSize,
+                    fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                  },
+                ]}
+              >
+                {textElement.content}
+              </Text>
               <TouchableOpacity
                 style={styles.textDeleteButton}
                 onPress={() => removeTextElement(textElement.id)}
@@ -538,137 +543,58 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
   return (
     <View style={styles.container}>
       <StatusBar hidden />
-      
-      {/* Optimized Hidden Capture View - Simplified for faster capture */}
-      <View 
-        ref={captureViewRef} 
-        style={styles.hiddenCaptureView}
-        pointerEvents="none"
-      >
-        <ImageBackground
-          source={{ uri: images[activeImageIndex] }}
-          style={styles.captureImageBackground}
-          resizeMode="cover" // Changed to cover for faster rendering
-        >
-          {/* Simplified SVG rendering - only essential paths */}
-          {currentEdits.paths.length > 0 && (
-            <Svg
-              style={StyleSheet.absoluteFillObject}
-              width={Math.min(screenWidth, 800)}
-              height={Math.min(screenHeight - 200, 600)}
-            >
-              <G>
-                {currentEdits.paths.map((path) => (
-                  <Path
-                    key={path.id}
-                    d={path.path}
-                    stroke={path.color}
-                    strokeWidth={Math.max(path.strokeWidth, 2)} // Minimum stroke width for visibility
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                ))}
-              </G>
-            </Svg>
-          )}
 
-          {/* Simplified text rendering */}
-          {currentEdits.texts.map((textElement) => (
-            <Text
-              key={textElement.id}
-              style={[
-                styles.captureTextElement,
-                {
-                  color: textElement.color,
-                  fontSize: Math.max(textElement.fontSize, 16), // Minimum font size
-                  fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
-                  transform: [
-                    { translateX: textElement.position.x },
-                    { translateY: textElement.position.y },
-                    { scale: Math.max(textElement.scale, 0.5) }, // Minimum scale
-                    { rotate: `${textElement.rotation}rad` },
-                  ],
-                },
-              ]}
-              numberOfLines={3} // Limit text lines for performance
-            >
-              {textElement.content}
-            </Text>
-          ))}
+      {/* Top Header with Back Button and Tool Icons */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
 
-          {/* Simplified sticker rendering */}
-          {currentEdits.stickers.map((stickerElement) => (
-            <Image
-              key={stickerElement.id}
-              source={{ uri: stickerElement.uri }}
-              style={[
-                styles.captureStickerElement,
-                {
-                  transform: [
-                    { translateX: stickerElement.position.x },
-                    { translateY: stickerElement.position.y },
-                    { scale: Math.max(stickerElement.scale, 0.3) }, // Minimum scale
-                    { rotate: `${stickerElement.rotation}rad` },
-                  ],
-                },
-              ]}
-              resizeMode="contain"
-            />
-          ))}
-        </ImageBackground>
+        {/* Horizontal Tool Icons */}
+        <View style={styles.horizontalToolButtons}>
+          <TouchableOpacity
+            style={[styles.toolButton, toolMode === 'sticker' && styles.activeTool]}
+            onPress={() => {
+              setToolMode('sticker');
+              bottomSheetRef.current?.expand();
+            }}
+          >
+            <Ionicons name="happy" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.toolButton, toolMode === 'sticker' && styles.activeTool]}
+            onPress={() => {
+              setToolMode('sticker');
+              bottomSheetRef.current?.expand();
+            }}
+          >
+            <Ionicons name="document-text" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.toolButton, toolMode === 'text' && styles.activeTool]}
+            onPress={() => {
+              setToolMode('text');
+              addText();
+            }}
+          >
+            <Ionicons name="text" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.toolButton}>
+            <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Main UI */}
       <ImageBackground
         source={{ uri: images[activeImageIndex] }}
         style={styles.imageBackground}
-        resizeMode="contain"
+        resizeMode="cover"
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          
-          <View style={styles.toolButtons}>
-            <TouchableOpacity
-              style={[styles.toolButton, toolMode === 'crop' && styles.activeTool]}
-              onPress={() => setShowCropModal(true)}
-            >
-              <Ionicons name="crop" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.toolButton, toolMode === 'sticker' && styles.activeTool]}
-              onPress={() => {
-                setToolMode('sticker');
-                bottomSheetRef.current?.expand();
-              }}
-            >
-              <Ionicons name="happy" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.toolButton, toolMode === 'text' && styles.activeTool]}
-              onPress={() => {
-                setToolMode('text');
-                addText();
-              }}
-            >
-              <Ionicons name="text" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.toolButton, toolMode === 'draw' && styles.activeTool]}
-              onPress={() => setToolMode(toolMode === 'draw' ? 'none' : 'draw')}
-            >
-              <Ionicons name="pencil" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Drawing Canvas */}
+
         <View style={styles.canvas} {...panResponderRef.panHandlers}>
           <Svg
             ref={svgRef}
@@ -677,7 +603,6 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
             height={screenHeight}
           >
             <G>
-              {/* Render existing paths */}
               {currentEdits.paths.map((path) => (
                 <Path
                   key={path.id}
@@ -689,7 +614,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
                   strokeLinejoin="round"
                 />
               ))}
-              
+
               {/* Render current drawing path */}
               {isDrawing && currentPath && (
                 <Path
@@ -736,125 +661,101 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
                 />
               ))}
             </ScrollView>
+
+            {/* Stroke Width Picker */}
+            <View style={styles.strokeWidthPicker}>
+              <Text style={styles.pickerLabel}>Width:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[1, 2, 3, 5, 8, 12].map((width) => (
+                  <TouchableOpacity
+                    key={width}
+                    style={[
+                      styles.strokeWidthOption,
+                      strokeWidth === width && styles.selectedStrokeWidth,
+                    ]}
+                    onPress={() => setStrokeWidth(width)}
+                  >
+                    <View
+                      style={[
+                        styles.strokeWidthIndicator,
+                        {
+                          width: width * 2,
+                          height: width * 2,
+                          backgroundColor: strokeColor,
+                        }
+                      ]}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        )}
+
+        {/* Color Picker for Text */}
+        {toolMode === 'text' && (
+          <View style={styles.colorPicker}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {colors.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    textColor === color && styles.selectedColor,
+                  ]}
+                  onPress={() => setTextColor(color)}
+                />
+              ))}
+            </ScrollView>
+
+            {/* Text Size Picker */}
+            <View style={styles.textSizePicker}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[16, 20, 24, 28, 32, 36].map((size) => (
+                  <TouchableOpacity
+                    key={size}
+                    style={[
+                      styles.textSizeOption,
+                      textSize === size && styles.selectedTextSize,
+                    ]}
+                    onPress={() => setTextSize(size)}
+                  >
+                    <Text style={[styles.textSizeIndicator, { fontSize: size, color: textColor }]}>
+                      Aa
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           </View>
         )}
 
       </ImageBackground>
 
-      {/* Footer - Image Navigator (Outside ImageBackground) */}
-      <View style={styles.footer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {images.map((image, index) => (
-            <View key={index} style={styles.thumbnailContainer}>
-              {/* Thumbnail */}
-              <TouchableOpacity
-                style={[
-                  styles.thumbnail,
-                  index === activeImageIndex && styles.activeThumbnail,
-                ]}
-                onPress={() => switchImage(index)}
-              >
-                <Image source={{ uri: image }} style={styles.thumbnailImage} />
-                {index === activeImageIndex && (
-                  <View style={styles.activeIndicator} />
-                )}
-                
-                {/* Trash Icon Overlay on Selected Item */}
-                {onRemoveImage && images.length > 1 && index === activeImageIndex && (
-                  <TouchableOpacity
-                    style={styles.trashOverlay}
-                    onPress={() => handleRemoveImage(index)}
-                  >
-                    <Ionicons name="trash" size={18} color="#ffffff" />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
-
       <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
-          <TouchableOpacity 
-            style={styles.audioButton}
-            onPress={() => setIsRecording(!isRecording)}
-          >
-            <Ionicons 
-              name={isRecording ? "stop" : "mic"} 
-              size={24} 
-              color={isRecording ? "#FF3B30" : "#007AFF"} 
-            />
-          </TouchableOpacity>
-          
-          <View style={styles.textInputContainer}>
-            <TextInput
-              style={styles.messageTextInput}
-              placeholder="Type a message..."
-              placeholderTextColor="#8E8E93"
-              value={messageText}
-              onChangeText={setMessageText}
-              multiline
-              maxLength={1000}
-            />
-          </View>
-          
-          <TouchableOpacity 
-            style={[
-              styles.sendButton, 
-              styles.sendButtonActive,
-              isCapturing && styles.sendButtonDisabled
-            ]}
-            onPress={captureEditedImage}
-            disabled={isCapturing}
-          >
-            <Ionicons 
-              name={isCapturing ? "hourglass" : "send"} 
-              size={20} 
-              color="#FFFFFF" 
+        <View style={{
+          height: 70,
+          width: 70,
+          borderRadius: 35,
+          marginBottom: 40,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: '#FFD700',
+
+        }}>
+          <TouchableOpacity onPress={() => {
+            captureEditedImage();
+          }}>
+            <Ionicons
+              name="send"
+              size={24}
+              color="#000000"
             />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Crop Modal */}
-      <Modal
-        visible={showCropModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCropModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Crop Image</Text>
-            <Text style={styles.modalDescription}>
-              This will crop the image to a 4:3 aspect ratio
-            </Text>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowCropModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={cropImage}
-              >
-                <Text style={styles.addButtonText}>Crop</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Sticker Bottom Sheet */}
       <StickerBottomSheet
         bottomSheetRef={bottomSheetRef}
         onStickerSelect={addSticker}
@@ -911,20 +812,42 @@ const styles = StyleSheet.create({
   },
   imageBackground: {
     flex: 1,
-    width: '100%',
-    height: '100%',
-    marginBottom: 100, // Account for footer height only
-  },
-  header: {
+    width: screenWidth,
+    height: screenHeight - 120, // Leave space for top header
     position: 'absolute',
-    top: 50,
+    top: 120, // Start below the header
     left: 0,
     right: 0,
+    bottom: 0,
+  },
+  topHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120, // Fixed height for header area
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: 50, // Account for status bar
+    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Semi-transparent background
     zIndex: 10,
+  },
+  horizontalToolButtons: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  toolButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeTool: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   closeButton: {
     width: 40,
@@ -934,11 +857,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  toolButtons: {
-    flexDirection: 'row',
-    gap: 15,
-  },
-  toolButton: {
+  editButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -946,16 +865,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  activeTool: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-  },
   canvas: {
-    flex: 1,
     position: 'absolute',
-    top: 0,
+    top: 120, // Start below the header
     left: 0,
     right: 0,
     bottom: 0,
+    width: screenWidth,
+    height: screenHeight - 120, // Adjust height to account for header
   },
   colorPicker: {
     position: 'absolute',
@@ -1200,12 +1117,13 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     position: 'absolute',
-    bottom: 0, // At the very bottom
+    bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 16, // Account for safe area
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
   },
   inputWrapper: {
     flexDirection: 'row',

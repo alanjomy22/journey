@@ -64,23 +64,23 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   const startRecording = useCallback(async () => {
     try {
       console.log('🎤 Starting audio recording...');
-      
+
       await initializeAudio();
-      
+
       // Create new recording
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      
+
       recordingRef.current = recording;
-      
-      setState(prev => ({ 
-        ...prev, 
-        isRecording: true, 
-        duration: 0, 
+
+      setState(prev => ({
+        ...prev,
+        isRecording: true,
+        duration: 0,
         error: null,
         recordingUri: null,
-        transcription: null 
+        transcription: null
       }));
 
       // Start duration timer
@@ -91,10 +91,10 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       console.log('✅ Recording started successfully');
     } catch (error) {
       console.error('❌ Failed to start recording:', error);
-      setState(prev => ({ 
-        ...prev, 
+      setState(prev => ({
+        ...prev,
         error: 'Failed to start recording. Please check microphone permissions.',
-        isRecording: false 
+        isRecording: false
       }));
     }
   }, [initializeAudio]);
@@ -103,7 +103,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   const stopRecording = useCallback(async (): Promise<void> => {
     try {
       console.log('🛑 Stopping audio recording...');
-      
+
       if (!recordingRef.current) {
         throw new Error('No active recording found');
       }
@@ -117,22 +117,22 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       // Stop and get URI
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
-      
+
       recordingRef.current = null;
 
-      setState(prev => ({ 
-        ...prev, 
-        isRecording: false, 
-        recordingUri: uri 
+      setState(prev => ({
+        ...prev,
+        isRecording: false,
+        recordingUri: uri
       }));
 
       console.log('✅ Recording stopped. URI:', uri);
     } catch (error) {
       console.error('❌ Failed to stop recording:', error);
-      setState(prev => ({ 
-        ...prev, 
+      setState(prev => ({
+        ...prev,
         error: 'Failed to stop recording',
-        isRecording: false 
+        isRecording: false
       }));
     }
   }, []);
@@ -163,7 +163,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       // Load and play the recording
       const { sound } = await Audio.Sound.createAsync(
         { uri: state.recordingUri },
-        { 
+        {
           shouldPlay: true,
           volume: 1.0,
         }
@@ -183,10 +183,10 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       console.log('✅ Playback started');
     } catch (error) {
       console.error('❌ Failed to play recording:', error);
-      setState(prev => ({ 
-        ...prev, 
+      setState(prev => ({
+        ...prev,
         error: 'Failed to play recording',
-        isPlaying: false 
+        isPlaying: false
       }));
     }
   }, [state.recordingUri]);
@@ -207,7 +207,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   // Upload audio to AssemblyAI and get transcription
   const transcribeAudio = useCallback(async (audioUri?: string): Promise<string | null> => {
     const uriToTranscribe = audioUri || state.recordingUri;
-    
+
     if (!uriToTranscribe) {
       setState(prev => ({ ...prev, error: 'No audio file available for transcription' }));
       return null;
@@ -231,7 +231,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
 
       // Upload audio to AssemblyAI using FormData
       console.log('📤 Uploading audio to AssemblyAI...');
-      
+
       // Create a blob from base64
       const response = await fetch(`data:audio/m4a;base64,${audioBase64}`);
       const audioBlob = await response.blob();
@@ -279,10 +279,10 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       // Poll for completion
       let attempts = 0;
       const maxAttempts = 60; // 5 minutes max
-      
+
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-        
+
         const statusResponse = await fetch(`${ASSEMBLYAI_BASE_URL}/transcript/${transcriptId}`, {
           headers: {
             'Authorization': ASSEMBLYAI_API_KEY,
@@ -294,22 +294,22 @@ export function useAudioRecording(): UseAudioRecordingReturn {
         }
 
         const statusData = await statusResponse.json();
-        
+
         if (statusData.status === 'completed') {
           const transcriptionText = statusData.text || '';
           console.log('✅ Transcription completed:', transcriptionText);
-          
-          setState(prev => ({ 
-            ...prev, 
-            transcription: transcriptionText, 
-            isTranscribing: false 
+
+          setState(prev => ({
+            ...prev,
+            transcription: transcriptionText,
+            isTranscribing: false
           }));
-          
+
           return transcriptionText;
         } else if (statusData.status === 'error') {
           throw new Error(`Transcription failed: ${statusData.error}`);
         }
-        
+
         attempts++;
         console.log(`🔄 Transcription in progress... (${attempts}/${maxAttempts})`);
       }
@@ -318,10 +318,10 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     } catch (error) {
       console.error('❌ Transcription failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Transcription failed';
-      setState(prev => ({ 
-        ...prev, 
-        error: errorMessage, 
-        isTranscribing: false 
+      setState(prev => ({
+        ...prev,
+        error: errorMessage,
+        isTranscribing: false
       }));
       return null;
     }
@@ -329,12 +329,12 @@ export function useAudioRecording(): UseAudioRecordingReturn {
 
   // Clear recording
   const clearRecording = useCallback(() => {
-    setState(prev => ({ 
-      ...prev, 
-      recordingUri: null, 
-      transcription: null, 
+    setState(prev => ({
+      ...prev,
+      recordingUri: null,
+      transcription: null,
       duration: 0,
-      error: null 
+      error: null
     }));
   }, []);
 

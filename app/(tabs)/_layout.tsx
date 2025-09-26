@@ -17,39 +17,39 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarShowLabel: false,
         tabBarStyle: {
-          display: 'flex',
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
-        },
-        tabBarItemStyle: {
-          justifyContent: 'center',
-          alignItems: 'center',
+          backgroundColor: '#000000',
+          borderTopWidth: 0,
+          height: 80,
+          paddingTop: 10,
+          paddingBottom: 10,
         },
       }}>
-      
+
+      <Tabs.Screen
+        name="book"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, focused }) => (
+            <RemixIcon
+              name="book-open-line"
+              size={28}
+              color={focused ? '#FFD700' : '#666666'}
+            />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="index"
         options={{
-          tabBarIcon: ({ color }) => <RemixIcon name="home-line" size={28} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          tabBarIcon: ({ color }) => <RemixIcon name="search-line" size={28} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="newpost"
-        options={{
-          tabBarIcon: ({ color }) => <RemixIcon name="camera-line" size={28} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          tabBarIcon: ({ color }) => <RemixIcon name="lightbulb-line" size={28} color={color} />,
+          title: 'New Post',
+          tabBarIcon: ({ color, focused }) => (
+            <RemixIcon
+              name="add-line"
+              size={32}
+              color={focused ? '#FFD700' : '#666666'}
+            />
+          ),
         }}
       />
       <Tabs.Screen
@@ -59,9 +59,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="activity"
         options={{
-          tabBarIcon: ({ color }) => <RemixIcon name="user-line" size={28} color={color} />,
+          title: 'Lens',
+          tabBarIcon: ({ color, focused }) => (
+            <RemixIcon
+              name="search-eye-line"
+              size={28}
+              color={focused ? '#FFD700' : '#666666'}
+            />
+          ),
         }}
       />
     </Tabs>

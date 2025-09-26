@@ -25,7 +25,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [editorImages, setEditorImages] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
-  
+
   const cameraRef = useRef<CameraView>(null);
   const { selectedImages, pickImageFromGallery, addCapturedImage, clearImages, isPicking } = useImagePicker();
 
@@ -40,17 +40,17 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
 
   const handleCloseImageEditor = () => {
     setShowImageEditor(false);
-    clearImages();
+    setEditorImages([]);
   };
 
   const handleRemoveImageFromEditor = (index: number) => {
     // Update the editor images array
     setEditorImages(prev => prev.filter((_, i) => i !== index));
-    
+
     // If no images left, close the editor
     if (editorImages.length <= 1) {
       setShowImageEditor(false);
-      clearImages();
+      setEditorImages([]);
     }
   };
 
@@ -60,14 +60,14 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
 
   const takePicture = async () => {
     if (!cameraRef.current) return;
-    
+
     try {
       setIsCapturing(true);
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: false,
       });
-      
+
       if (photo) {
         // Add the captured photo to the image picker
         const newImage = {
@@ -78,7 +78,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
           fileName: `camera_${Date.now()}.jpg`,
           fileSize: 0,
         };
-        
+
         // Add to image picker and trigger editor
         addCapturedImage(newImage);
       }
@@ -88,19 +88,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
     } finally {
       setIsCapturing(false);
     }
-  };
-
-  const handleGalleryPress = () => {
-    pickImageFromGallery();
-  };
-
-  const handleTextPress = () => {
-    // For now, take a picture and then add text
-    takePicture();
-  };
-
-  const handleVideoPress = () => {
-    Alert.alert('Video', 'Video recording functionality coming soon!');
   };
 
   const handleWritePress = () => {
@@ -143,7 +130,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      
+
       {/* Camera View */}
       <CameraView
         ref={cameraRef}
@@ -156,51 +143,51 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose }) => {
           <TouchableOpacity style={styles.topButton} onPress={onClose}>
             <Ionicons name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.topButton} onPress={toggleCameraFacing}>
             <Ionicons name="camera-reverse" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
-         {/* Bottom Controls - Three Button Layout */}
-         <View style={styles.bottomControls}>
-           {/* Left Side - Write Button */}
-           <View style={styles.sideButtonContainer}>
-             <TouchableOpacity 
-               style={styles.sideButton} 
-               onPress={handleWritePress}
-             >
-               <Ionicons name="create" size={24} color="#FFFFFF" />
-             </TouchableOpacity>
-             <Text style={styles.sideButtonLabel}>write</Text>
-           </View>
+        {/* Bottom Controls - Three Button Layout */}
+        <View style={styles.bottomControls}>
+          {/* Left Side - Write Button */}
+          <View style={styles.sideButtonContainer}>
+            <TouchableOpacity
+              style={styles.sideButton}
+              onPress={handleWritePress}
+            >
+              <Ionicons name="create" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.sideButtonLabel}>write</Text>
+          </View>
 
-           {/* Center - Capture Button */}
-           <TouchableOpacity 
-             style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]} 
-             onPress={takePicture}
-             disabled={isCapturing}
-           >
-             <View style={styles.captureButtonInner}>
-               {isCapturing ? (
-                 <Ionicons name="hourglass" size={32} color="#FFFFFF" />
-               ) : (
-                 <View style={styles.captureButtonIcon} />
-               )}
-             </View>
-           </TouchableOpacity>
+          {/* Center - Capture Button */}
+          <TouchableOpacity
+            style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
+            onPress={takePicture}
+            disabled={isCapturing}
+          >
+            <View style={styles.captureButtonInner}>
+              {isCapturing ? (
+                <Ionicons name="hourglass" size={32} color="#FFFFFF" />
+              ) : (
+                <View style={styles.captureButtonIcon} />
+              )}
+            </View>
+          </TouchableOpacity>
 
-           {/* Right Side - Yap Button */}
-           <View style={styles.sideButtonContainer}>
-             <TouchableOpacity 
-               style={styles.sideButton} 
-               onPress={handleYapPress}
-             >
-               <Ionicons name="mic" size={24} color="#FFFFFF" />
-             </TouchableOpacity>
-             <Text style={styles.sideButtonLabel}>yap</Text>
-           </View>
-         </View>
+          {/* Right Side - Yap Button */}
+          <View style={styles.sideButtonContainer}>
+            <TouchableOpacity
+              style={styles.sideButton}
+              onPress={handleYapPress}
+            >
+              <Ionicons name="mic" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.sideButtonLabel}>yap</Text>
+          </View>
+        </View>
       </CameraView>
     </View>
   );
