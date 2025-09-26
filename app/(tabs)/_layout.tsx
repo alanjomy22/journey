@@ -53,6 +53,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="analytics"
+        options={{
+          tabBarIcon: ({ color }) => <RemixIcon name="bar-chart-line" size={28} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           tabBarIcon: ({ color }) => <RemixIcon name="user-line" size={28} color={color} />,
