@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { mockJournalEntries } from '@/constants/mockData';
 import { useAudioRecording, useChat, useImageDescription } from '@/hooks';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,10 +33,18 @@ interface ChatMessage {
   audioDuration?: string;
   isStreaming?: boolean;
   isPlaying?: boolean;
+  base64Data?: string;
   responseAudioUrl?: string; // For bot response audio files
   shouldAutoPlay?: boolean; // Flag to auto-play audio responses
   showInput?: boolean; // Flag to show input after this message
   inputText?: string; // Text in the input for this message
+}
+
+interface JournalEntry {
+  id: string;
+  image: string;
+  base64Data: string;
+  preview: string;
 }
 
 export default function InsightDetailsScreen() {
@@ -78,8 +86,33 @@ export default function InsightDetailsScreen() {
     resetError: resetAudioError,
   } = useAudioRecording();
 
-  // Find the journal entry
-  const entry = mockJournalEntries.find(e => e.id === id);
+  // Find the journal entry from mock data or AsyncStorage
+  const [entry, setEntry] = useState<JournalEntry | null>(null);
+
+  useEffect(() => {
+    const loadJournalEntry = async () => {
+      // First try mock data
+      
+      // If not found in mock data, try AsyncStorage (for captured images)
+      if ( id) {
+        try {
+          const storedData = await AsyncStorage.getItem(`journal_${id}`);
+
+          console.log('Stored data:', storedData);
+          if (storedData) {
+            const journalEntry = JSON.parse(storedData);
+      setEntry(journalEntry);
+
+          }
+        } catch (error) {
+          console.error('Error loading journal entry:', error);
+        }
+      }
+      
+    };
+
+    loadJournalEntry();
+  }, [id]);
 
   // Function to play response audio
   const playResponseAudio = async (audioUrl: string) => {
@@ -382,7 +415,7 @@ export default function InsightDetailsScreen() {
   };
 
   useEffect(() => {
-    const handleInitialImageAnalysis = async (imageUri: string) => {
+    const handleInitialImageAnalysis = async (base64Data: string) => {
       setIsAnalyzing(true);
       
       // Generate a unique session ID for this conversation
@@ -391,7 +424,7 @@ export default function InsightDetailsScreen() {
       
       try {
         // Get image description from API
-        const description = await getDescription(imageUri);
+        const description = await getDescription(base64Data);
         setImageDescription(description);
         
         // Generate chat response based on the description
@@ -421,12 +454,13 @@ export default function InsightDetailsScreen() {
           imageUri: entry.image,
           isUser: true,
           timestamp: new Date(Date.now() - 60000), // 1 minute ago
+          base64Data: entry.base64Data,
         }
       ];
       setMessages(initialMessages);
       
       // Get image description from API and then generate chat response
-      handleInitialImageAnalysis(entry.image);
+      handleInitialImageAnalysis(entry.base64Data);
     }
   }, [entry, getDescription, sendMessage]);
 

@@ -1,5 +1,6 @@
 // Export all reusable components
 export { ActivityItem } from './ActivityItem';
+export { CameraScreen } from './CameraScreen';
 export { ImageEditorScreen } from './ImageEditorScreen';
 export { InteractiveSticker } from './InteractiveSticker';
 export { OptionButton } from './OptionButton';
@@ -8,6 +9,8 @@ export { ProfileStats } from './ProfileStats';
 export { ScreenHeader } from './ScreenHeader';
 export { StickerBottomSheet } from './StickerBottomSheet';
 export { Story } from './Story';
+export { SwipeableCameraScreen } from './SwipeableCameraScreen';
+export { TextPicker } from './TextPicker';
 
 // Export existing components
 export { ExternalLink } from './external-link';

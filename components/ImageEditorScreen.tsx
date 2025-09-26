@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet from '@gorhom/bottom-sheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
-import React, { useCallback, useRef, useState } from 'react';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -27,8 +29,10 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import Svg, { G, Path } from 'react-native-svg';
+import { captureRef, captureScreen } from 'react-native-view-shot';
 import { InteractiveSticker } from './InteractiveSticker';
 import { StickerBottomSheet } from './StickerBottomSheet';
+import { TextPicker } from './TextPicker';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -54,6 +58,7 @@ interface TextElement {
   fontSize: number;
   rotation: number;
   scale: number;
+  fontFamily: string;
 }
 
 interface StickerElement {
@@ -89,6 +94,8 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
   const [showCropModal, setShowCropModal] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [showTextPicker, setShowTextPicker] = useState(false);
 
   // Edits state - stores edits per image
   const [edits, setEdits] = useState<Record<number, ImageEdits>>({});
@@ -96,6 +103,12 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
   // Refs
   const svgRef = useRef<Svg>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
+  const captureViewRef = useRef<View>(null);
+
+  // Debug ref mounting
+  useEffect(() => {
+    console.log('captureViewRef mounted:', captureViewRef.current);
+  }, []);
   const panResponderRef = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => toolMode === 'draw',
@@ -175,16 +188,22 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
     }
   }, [onRemoveImage, activeImageIndex, images.length]);
 
-  // Add text (Instagram style - directly add with default text)
+  // Add text using TextPicker
   const addText = useCallback(() => {
+    setShowTextPicker(true);
+  }, []);
+
+  // Handle text addition from TextPicker
+  const handleTextAdd = useCallback((text: string, fontFamily: string, fontSize: number, color: string) => {
     const newText: TextElement = {
       id: Date.now().toString(),
-      content: 'Tap to edit',
+      content: text,
       position: { x: screenWidth / 2 - 50, y: screenHeight / 2 - 20 },
-      color: textColor,
-      fontSize: textSize,
+      color: color,
+      fontSize: fontSize,
       rotation: 0,
       scale: 1,
+      fontFamily: fontFamily,
     };
 
     setEdits((prev) => ({
@@ -195,7 +214,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         stickers: prev[activeImageIndex]?.stickers || [],
       },
     }));
-  }, [textColor, textSize, activeImageIndex]);
+  }, [activeImageIndex]);
 
   // Update text element
   const updateTextElement = useCallback((id: string, updates: Partial<TextElement>) => {
@@ -283,6 +302,104 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
     }
   }, [activeImageIndex, images]);
 
+  // Capture the edited image with all layers (optimized)
+  const captureEditedImage = useCallback(async () => {
+    if (isCapturing) return; // Prevent multiple captures
+    
+    try {
+      setIsCapturing(true);
+      console.log('Starting optimized capture process...');
+      
+      // Reduced delay for faster capture
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      console.log('Attempting to capture view...');
+      
+      let uri: string;
+      
+      // Optimized capture settings for faster processing
+      const captureOptions = {
+        format: 'jpg' as const,
+        quality: 0.6, // Reduced quality for faster processing and smaller files
+        result: 'base64' as const,
+        width: Math.min(screenWidth, 800), // Limit width for faster processing
+        height: Math.min(screenHeight - 200, 600), // Limit height
+      };
+      
+      // Try captureRef first
+      if (captureViewRef.current) {
+        try {
+          uri = await captureRef(captureViewRef.current, captureOptions);
+          console.log('Capture successful with captureRef, base64 length:', uri.length);
+        } catch (refError) {
+          console.log('captureRef failed, trying captureScreen:', refError);
+          // Fallback to captureScreen with same optimized settings
+          uri = await captureScreen(captureOptions);
+          console.log('Capture successful with captureScreen, base64 length:', uri.length);
+        }
+      } else {
+        console.log('No ref available, using captureScreen');
+        uri = await captureScreen(captureOptions);
+        console.log('Capture successful with captureScreen, base64 length:', uri.length);
+      }
+
+      // Compress base64 data further if it's still too large
+      if (uri.length > 1000000) { // If larger than ~1MB
+        console.log('Base64 data is large, applying additional compression...');
+        // Re-capture with even lower quality
+        const compressedOptions = { ...captureOptions, quality: 0.4 };
+        if (captureViewRef.current) {
+          uri = await captureRef(captureViewRef.current, compressedOptions);
+        } else {
+          uri = await captureScreen(compressedOptions);
+        }
+        console.log('Compressed base64 length:', uri.length);
+      }
+
+      const imageDataUri = `data:image/jpeg;base64,${uri}`;
+      const message = messageText.trim() || undefined;
+      
+      console.log('Optimized capture complete:');
+      console.log('Final base64 length:', uri.length);
+      console.log('Estimated size:', Math.round(uri.length * 3 / 4 / 1024), 'KB');
+
+      // Store the data in AsyncStorage (this is fast)
+      const dataKey = `captured_image_${Date.now()}`;
+      await AsyncStorage.setItem(dataKey, JSON.stringify({
+        imageUri: imageDataUri,
+        base64Data: uri,
+        messageText: message,
+      }));
+
+      // Create a new journal entry with the captured image
+      const newJournalEntryId = `captured_${Date.now()}`;
+      
+      // Store the captured image data as a journal entry
+      await AsyncStorage.setItem(`journal_${newJournalEntryId}`, JSON.stringify({
+        id: newJournalEntryId,
+        day: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+        date: new Date().toISOString().split('T')[0],
+        month: new Date().toLocaleDateString('en-US', { month: 'long' }),
+        image: imageDataUri, // Use the captured image URI
+        preview: message || 'Captured a moment worth remembering...',
+        base64Data: uri, // Store base64 data for reference
+      }));
+      
+      // Navigate to insights page with the new journal entry
+      router.push({
+        pathname: '/insights/[id]',
+        params: {
+          id: newJournalEntryId,
+        },
+      });
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      Alert.alert('Error', `Failed to capture image: ${error.message}`);
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [messageText, isCapturing]);
+
   // Draggable Text Component with inline editing
   const DraggableText: React.FC<{ textElement: TextElement }> = ({ textElement }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -357,22 +474,23 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         <Animated.View style={[styles.draggableText, animatedStyle]}>
           {isEditing ? (
             <View style={styles.textEditContainer}>
-              <TextInput
-                style={[
-                  styles.draggableTextInput,
-                  {
-                    color: textElement.color,
-                    fontSize: textElement.fontSize,
-                  },
-                ]}
-                value={editText}
-                onChangeText={setEditText}
-                onSubmitEditing={handleTextSubmit}
-                onBlur={handleTextSubmit}
-                autoFocus
-                multiline
-                selectTextOnFocus
-              />
+                  <TextInput
+                    style={[
+                      styles.draggableTextInput,
+                      {
+                        color: textElement.color,
+                        fontSize: textElement.fontSize,
+                        fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                      },
+                    ]}
+                    value={editText}
+                    onChangeText={setEditText}
+                    onSubmitEditing={handleTextSubmit}
+                    onBlur={handleTextSubmit}
+                    autoFocus
+                    multiline
+                    selectTextOnFocus
+                  />
               <View style={styles.textEditButtons}>
                 <TouchableOpacity
                   style={styles.textEditButton}
@@ -390,17 +508,18 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
             </View>
           ) : (
             <TouchableOpacity onPress={handleTextPress} style={styles.textContainer}>
-              <Text
-                style={[
-                  styles.textElement,
-                  {
-                    color: textElement.color,
-                    fontSize: textElement.fontSize,
-                  },
-                ]}
-              >
-                {textElement.content}
-              </Text>
+                  <Text
+                    style={[
+                      styles.textElement,
+                      {
+                        color: textElement.color,
+                        fontSize: textElement.fontSize,
+                        fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                      },
+                    ]}
+                  >
+                    {textElement.content}
+                  </Text>
               <TouchableOpacity
                 style={styles.textDeleteButton}
                 onPress={() => removeTextElement(textElement.id)}
@@ -420,7 +539,87 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
     <View style={styles.container}>
       <StatusBar hidden />
       
-      {/* Image Background */}
+      {/* Optimized Hidden Capture View - Simplified for faster capture */}
+      <View 
+        ref={captureViewRef} 
+        style={styles.hiddenCaptureView}
+        pointerEvents="none"
+      >
+        <ImageBackground
+          source={{ uri: images[activeImageIndex] }}
+          style={styles.captureImageBackground}
+          resizeMode="cover" // Changed to cover for faster rendering
+        >
+          {/* Simplified SVG rendering - only essential paths */}
+          {currentEdits.paths.length > 0 && (
+            <Svg
+              style={StyleSheet.absoluteFillObject}
+              width={Math.min(screenWidth, 800)}
+              height={Math.min(screenHeight - 200, 600)}
+            >
+              <G>
+                {currentEdits.paths.map((path) => (
+                  <Path
+                    key={path.id}
+                    d={path.path}
+                    stroke={path.color}
+                    strokeWidth={Math.max(path.strokeWidth, 2)} // Minimum stroke width for visibility
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </G>
+            </Svg>
+          )}
+
+          {/* Simplified text rendering */}
+          {currentEdits.texts.map((textElement) => (
+            <Text
+              key={textElement.id}
+              style={[
+                styles.captureTextElement,
+                {
+                  color: textElement.color,
+                  fontSize: Math.max(textElement.fontSize, 16), // Minimum font size
+                  fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                  transform: [
+                    { translateX: textElement.position.x },
+                    { translateY: textElement.position.y },
+                    { scale: Math.max(textElement.scale, 0.5) }, // Minimum scale
+                    { rotate: `${textElement.rotation}rad` },
+                  ],
+                },
+              ]}
+              numberOfLines={3} // Limit text lines for performance
+            >
+              {textElement.content}
+            </Text>
+          ))}
+
+          {/* Simplified sticker rendering */}
+          {currentEdits.stickers.map((stickerElement) => (
+            <Image
+              key={stickerElement.id}
+              source={{ uri: stickerElement.uri }}
+              style={[
+                styles.captureStickerElement,
+                {
+                  transform: [
+                    { translateX: stickerElement.position.x },
+                    { translateY: stickerElement.position.y },
+                    { scale: Math.max(stickerElement.scale, 0.3) }, // Minimum scale
+                    { rotate: `${stickerElement.rotation}rad` },
+                  ],
+                },
+              ]}
+              resizeMode="contain"
+            />
+          ))}
+        </ImageBackground>
+      </View>
+
+      {/* Main UI */}
       <ImageBackground
         source={{ uri: images[activeImageIndex] }}
         style={styles.imageBackground}
@@ -537,75 +736,9 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
                 />
               ))}
             </ScrollView>
-            
-            {/* Stroke Width Picker */}
-            <View style={styles.strokeWidthPicker}>
-              <Text style={styles.pickerLabel}>Width:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[1, 2, 3, 5, 8, 12].map((width) => (
-                  <TouchableOpacity
-                    key={width}
-                    style={[
-                      styles.strokeWidthOption,
-                      strokeWidth === width && styles.selectedStrokeWidth,
-                    ]}
-                    onPress={() => setStrokeWidth(width)}
-                  >
-                    <View
-                      style={[
-                        styles.strokeWidthIndicator,
-                        {
-                          width: width * 2,
-                          height: width * 2,
-                          backgroundColor: strokeColor,
-                        }
-                      ]}
-                    />
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
           </View>
         )}
 
-        {/* Color Picker for Text */}
-        {toolMode === 'text' && (
-          <View style={styles.colorPicker}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {colors.map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  style={[
-                    styles.colorOption,
-                    { backgroundColor: color },
-                    textColor === color && styles.selectedColor,
-                  ]}
-                  onPress={() => setTextColor(color)}
-                />
-              ))}
-            </ScrollView>
-            
-            {/* Text Size Picker */}
-            <View style={styles.textSizePicker}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[16, 20, 24, 28, 32, 36].map((size) => (
-                  <TouchableOpacity
-                    key={size}
-                    style={[
-                      styles.textSizeOption,
-                      textSize === size && styles.selectedTextSize,
-                    ]}
-                    onPress={() => setTextSize(size)}
-                  >
-                    <Text style={[styles.textSizeIndicator, { fontSize: size, color: textColor }]}>
-                      Aa
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-        )}
       </ImageBackground>
 
       {/* Footer - Image Navigator (Outside ImageBackground) */}
@@ -671,19 +804,18 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
           </View>
           
           <TouchableOpacity 
-            style={[styles.sendButton, messageText.trim() ? styles.sendButtonActive : styles.sendButtonInactive]}
-            onPress={() => {
-              if (messageText.trim()) {
-                // Handle send message
-                setMessageText('');
-              }
-            }}
-            disabled={!messageText.trim()}
+            style={[
+              styles.sendButton, 
+              styles.sendButtonActive,
+              isCapturing && styles.sendButtonDisabled
+            ]}
+            onPress={captureEditedImage}
+            disabled={isCapturing}
           >
             <Ionicons 
-              name="send" 
+              name={isCapturing ? "hourglass" : "send"} 
               size={20} 
-              color={messageText.trim() ? "#FFFFFF" : "#8E8E93"} 
+              color="#FFFFFF" 
             />
           </TouchableOpacity>
         </View>
@@ -727,6 +859,17 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         bottomSheetRef={bottomSheetRef}
         onStickerSelect={addSticker}
       />
+
+      {/* Text Picker Modal */}
+      <TextPicker
+        visible={showTextPicker}
+        onClose={() => setShowTextPicker(false)}
+        onTextAdd={handleTextAdd}
+        initialText="Your text here"
+        initialFontSize={24}
+        initialColor="#FFFFFF"
+        initialFontFamily="System"
+      />
     </View>
   );
 };
@@ -741,6 +884,30 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1000,
+  },
+  hiddenCaptureView: {
+    position: 'absolute',
+    top: -1000, // Hide off-screen
+    left: 0,
+    width: Math.min(screenWidth, 800), // Optimized size
+    height: Math.min(screenHeight - 200, 600), // Optimized size
+    zIndex: -1,
+  },
+  captureImageBackground: {
+    width: '100%',
+    height: '100%',
+  },
+  captureTextElement: {
+    position: 'absolute',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  captureStickerElement: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
   },
   imageBackground: {
     flex: 1,
@@ -1093,5 +1260,9 @@ const styles = StyleSheet.create({
   },
   sendButtonInactive: {
     backgroundColor: '#F2F2F7',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#8E8E93',
+    opacity: 0.6,
   },
 });
