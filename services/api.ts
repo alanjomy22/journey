@@ -4,6 +4,7 @@ export const API_CONFIG = {
   ENDPOINTS: {
     IMAGE_DESCRIPTION: '/descriptions/base64',
     CHAT: '/journal/chat',
+    CHAT_SESSIONS: '/chats',
   },
   HEADERS: {
     'Content-Type': 'application/json',
@@ -33,6 +34,24 @@ export interface ChatResponse {
   audio_file?: string;
 }
 
+// Chat Sessions API Types
+export interface ChatSession {
+  session_id: string;
+  metadata: any;
+}
+
+export interface JournalEntry {
+  journal_id: string;
+  created_at: string;
+  sessions: ChatSession[];
+}
+
+export interface ChatSessionsResponse {
+  success: boolean;
+  data: JournalEntry[];
+  total: number;
+}
+
 // Base API service class
 class ApiService {
   private baseUrl: string;
@@ -46,7 +65,7 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const config: RequestInit = {
       ...options,
       headers: {
@@ -57,7 +76,7 @@ class ApiService {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -91,6 +110,15 @@ class ApiService {
     );
   }
 
+  async getChatSessions(sessionId: string): Promise<ChatSessionsResponse> {
+    return this.makeRequest<ChatSessionsResponse>(
+      `${API_CONFIG.ENDPOINTS.CHAT_SESSIONS}/${sessionId}`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
   private generateFallbackResponse(userMessage: string): string {
     const responses = [
       'That\'s a beautiful reflection. What emotions did you feel during that moment?',
@@ -104,7 +132,7 @@ class ApiService {
       'Your words paint such a vivid picture. How do you think this experience will influence your future choices?',
       'That\'s a profound observation. What other thoughts or feelings came up for you during this time?',
     ];
-    
+
     return responses[Math.floor(Math.random() * responses.length)];
   }
 }
