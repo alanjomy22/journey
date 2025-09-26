@@ -33,10 +33,18 @@ interface ChatMessage {
   audioDuration?: string;
   isStreaming?: boolean;
   isPlaying?: boolean;
+  base64Data?: string;
   responseAudioUrl?: string; // For bot response audio files
   shouldAutoPlay?: boolean; // Flag to auto-play audio responses
   showInput?: boolean; // Flag to show input after this message
   inputText?: string; // Text in the input for this message
+}
+
+interface JournalEntry {
+  id: string;
+  image: string;
+  base64Data: string;
+  preview: string;
 }
 
 export default function InsightDetailsScreen() {
@@ -79,7 +87,7 @@ export default function InsightDetailsScreen() {
   } = useAudioRecording();
 
   // Find the journal entry from mock data or AsyncStorage
-  const [entry, setEntry] = useState();
+  const [entry, setEntry] = useState<JournalEntry | null>(null);
 
   useEffect(() => {
     const loadJournalEntry = async () => {
@@ -407,7 +415,7 @@ export default function InsightDetailsScreen() {
   };
 
   useEffect(() => {
-    const handleInitialImageAnalysis = async (imageUri: string, base64Data: string) => {
+    const handleInitialImageAnalysis = async (base64Data: string) => {
       setIsAnalyzing(true);
       
       // Generate a unique session ID for this conversation
@@ -452,7 +460,7 @@ export default function InsightDetailsScreen() {
       setMessages(initialMessages);
       
       // Get image description from API and then generate chat response
-      handleInitialImageAnalysis(entry);
+      handleInitialImageAnalysis(entry.base64Data);
     }
   }, [entry, getDescription, sendMessage]);
 
