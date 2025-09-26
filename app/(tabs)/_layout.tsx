@@ -58,19 +58,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <RemixIcon name="bar-chart-line" size={28} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          title: 'Lens',
-          tabBarIcon: ({ color, focused }) => (
-            <RemixIcon
-              name="search-eye-line"
-              size={28}
-              color={focused ? '#FFD700' : '#666666'}
-            />
-          ),
-        }}
-      />
     </Tabs>
   );
 }

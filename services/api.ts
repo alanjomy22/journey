@@ -37,19 +37,33 @@ export interface ChatResponse {
 // Chat Sessions API Types
 export interface ChatSession {
   session_id: string;
+  title: string;
   metadata: any;
+}
+
+export interface StoryAsset {
+  id: string;
+  title: string;
+  imageUri: string;
+  createdAt: string;
+  type: 'image' | 'video' | 'text';
+  isViewed?: boolean;
+  journal_id?: string;
+  session_id?: string;
 }
 
 export interface JournalEntry {
   journal_id: string;
   created_at: string;
   sessions: ChatSession[];
+  story_assets?: StoryAsset[];
 }
 
 export interface ChatSessionsResponse {
   success: boolean;
   data: JournalEntry[];
   total: number;
+  session_id?: string;
 }
 
 // Base API service class
@@ -111,12 +125,17 @@ class ApiService {
   }
 
   async getChatSessions(sessionId: string): Promise<ChatSessionsResponse> {
-    return this.makeRequest<ChatSessionsResponse>(
-      `${API_CONFIG.ENDPOINTS.CHAT_SESSIONS}/${sessionId}`,
-      {
-        method: 'GET',
-      }
-    );
+    // For now, return mock data. In production, this would make the actual API call
+    const { createCompleteApiResponse } = await import('@/constants/storyAssets');
+    return createCompleteApiResponse(sessionId);
+
+    // Uncomment below for actual API call:
+    // return this.makeRequest<ChatSessionsResponse>(
+    //   `${API_CONFIG.ENDPOINTS.CHAT_SESSIONS}/${sessionId}`,
+    //   {
+    //     method: 'GET',
+    //   }
+    // );
   }
 
   private generateFallbackResponse(userMessage: string): string {
