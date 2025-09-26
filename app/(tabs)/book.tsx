@@ -1,8 +1,10 @@
 import { StoryAsset } from '@/constants/storyAssets';
 import { useChatSessions } from '@/hooks';
+import { apiService, SummarizeSessionsResponse } from '@/services/api';
+import { sessionStorage } from '@/utils/sessionStorage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import RemixIcon from 'react-native-remix-icon';
 
@@ -11,9 +13,12 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 export default function BookScreen() {
   const router = useRouter();
-  // For now, using a placeholder session ID - in a real app, this would come from user context or navigation params
-  const sessionId = 'eeed484c-cd1f-45e6-abf1-f7ced8fc33a1';
+  const [sessionId, setSessionId] = useState<string>('entry_009_simple'); // Default fallback
   const { journalEntries, loading, error, refetch } = useChatSessions(sessionId);
+
+  // Featured card data from summarize API
+  const [featuredCardData, setFeaturedCardData] = useState<SummarizeSessionsResponse['data'] | null>(null);
+  const [featuredCardLoading, setFeaturedCardLoading] = useState(false);
 
   // Full screen image viewer state
   const [selectedStory, setSelectedStory] = useState<StoryAsset | null>(null);
@@ -26,8 +31,142 @@ export default function BookScreen() {
   const progressAnimation = useRef(new Animated.Value(0)).current;
   const fadeAnimation = useRef(new Animated.Value(0)).current;
 
+  // Load stored session ID on component mount
+  useEffect(() => {
+    const loadStoredSessionId = async () => {
+      try {
+        const storedSessionId = await sessionStorage.getSessionIdWithFallback('entry_009_simple');
+        setSessionId(storedSessionId);
+        console.log('📖 Book page loaded session ID:', storedSessionId);
+      } catch (error) {
+        console.error('❌ Failed to load session ID:', error);
+      }
+    };
+
+    loadStoredSessionId();
+  }, []);
+
+  // Fetch featured card data from summarize API
+  const fetchFeaturedCardData = useCallback(async () => {
+    try {
+      setFeaturedCardLoading(true);
+      const sessionIds = await sessionStorage.getCurrentDaySessionIds();
+      const response = await apiService.summarizeSessions(sessionIds);
+
+      console.log('🔄 Featured card data loaded:', response);
+
+      // Handle both structured response and direct summary response
+      if (response.success && response.data) {
+        setFeaturedCardData(response.data);
+        console.log('✅ Featured card data loaded:', response.data);
+      } else if (response.summary) {
+        // Handle direct summary response
+        setFeaturedCardData({
+          title: 'Daily Summary',
+          summary: response.summary,
+          image_url: undefined
+        });
+        console.log('✅ Featured card data loaded from summary:', response.summary);
+      } else {
+        console.log('⚠️ Featured card API returned unsuccessful response');
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch featured card data:', error);
+    } finally {
+      setFeaturedCardLoading(false);
+    }
+  }, []);
+
+  // Fetch featured card data on component mount
+  useEffect(() => {
+    fetchFeaturedCardData();
+  }, [fetchFeaturedCardData]);
+
+  // Refresh session ID when user returns to this page
+  useFocusEffect(
+    useCallback(() => {
+      const refreshSessionId = async () => {
+        try {
+          const storedSessionId = await sessionStorage.getSessionIdWithFallback('entry_009_simple');
+          if (storedSessionId !== sessionId) {
+            setSessionId(storedSessionId);
+            console.log('🔄 Book page refreshed session ID:', storedSessionId);
+          }
+        } catch (error) {
+          console.error('❌ Failed to refresh session ID:', error);
+        }
+      };
+
+      refreshSessionId();
+    }, [sessionId])
+  );
+
   const handleAddStory = () => {
     router.push('/(tabs)/');
+  };
+
+  // Skeleton loader component for featured card
+  const SkeletonLoader = () => {
+    const pulseAnimation = useRef(new Animated.Value(0.3)).current;
+
+    useEffect(() => {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnimation, {
+            toValue: 0.3,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    }, []);
+
+    return (
+      <View style={styles.skeletonContainer}>
+        {/* Image skeleton */}
+        <Animated.View
+          style={[
+            styles.skeletonImage,
+            { opacity: pulseAnimation }
+          ]}
+        />
+        <View style={styles.skeletonContent}>
+          {/* Title skeleton */}
+          <Animated.View
+            style={[
+              styles.skeletonTitle,
+              { opacity: pulseAnimation }
+            ]}
+          />
+          {/* Description skeleton lines */}
+          <Animated.View
+            style={[
+              styles.skeletonLine,
+              { opacity: pulseAnimation }
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.skeletonLine,
+              { opacity: pulseAnimation }
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.skeletonLineShort,
+              { opacity: pulseAnimation }
+            ]}
+          />
+        </View>
+      </View>
+    );
   };
 
   const handleStoryPress = (story: StoryAsset) => {
@@ -124,24 +263,9 @@ export default function BookScreen() {
     }
   }, [showFullScreen, currentStoryIndex]);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
 
   const renderJournalEntry = (entry: any, index: number) => (
     <View key={entry.journal_id || index} style={styles.journalCard}>
-      {/* Date Header */}
-      <View style={styles.dateHeader}>
-        <Text style={styles.dateText}>{formatDate(entry.created_at)}</Text>
-        <View style={styles.dateLine} />
-      </View>
-
       {/* Sessions */}
       {entry.sessions?.map((session: any, sessionIndex: number) => (
         <View key={session.session_id || sessionIndex} style={styles.sessionCard}>
@@ -161,13 +285,7 @@ export default function BookScreen() {
               <View key={story.id} style={styles.storyAsset}>
                 <Image source={{ uri: story.imageUri }} style={styles.assetThumbnail} />
                 <View style={styles.assetInfo}>
-                  <Text style={styles.assetTime}>
-                    {new Date(story.createdAt).toLocaleTimeString('en-US', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </Text>
-                  <Text style={styles.assetSummary}>Beautiful moment captured</Text>
+                  <Text style={styles.assetSummary}>{story.summary}</Text>
                 </View>
               </View>
             ))}
@@ -189,9 +307,6 @@ export default function BookScreen() {
           <RemixIcon name="arrow-down-s-line" size={32} color="#666" />
         </TouchableOpacity>
 
-      </View>
-      <View style={styles.dateTextContainer}>
-        <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</Text>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -223,16 +338,22 @@ export default function BookScreen() {
         <View style={styles.cardsSection}>
           {/* Featured Card */}
           <View style={styles.featuredCard}>
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1541961017774-22349e4a1262?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80' }}
-              style={styles.featuredImage}
-            />
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Day out in Rome</Text>
-              <Text style={styles.cardDescription}>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
-              </Text>
-            </View>
+            {featuredCardLoading || !featuredCardData ? (
+              <SkeletonLoader />
+            ) : (
+              <>
+                <Image
+                  source={{ uri: 'https://stg.trypncl.com/collage.jpeg' }}
+                  style={styles.featuredImage}
+                />
+                <View style={styles.cardContent}>
+                  <Text style={styles.cardTitle}>{featuredCardData.title}</Text>
+                  <Text style={styles.cardDescription}>
+                    {featuredCardData.summary}
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
 
           {/* Journal Entries from API */}
@@ -315,9 +436,6 @@ export default function BookScreen() {
                 {/* Story Info */}
                 <View style={styles.fullScreenInfo}>
                   <Text style={styles.fullScreenTitle}>{selectedStory.title}</Text>
-                  <Text style={styles.fullScreenDate}>
-                    {formatDate(selectedStory.createdAt)}
-                  </Text>
                 </View>
               </View>
             )}
@@ -679,5 +797,42 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 12,
     marginHorizontal: 5,
+  },
+  // Skeleton loader styles
+  skeletonContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    padding: 20,
+  },
+  skeletonImage: {
+    width: 120,
+    height: 120,
+    backgroundColor: '#fefce8', // Very light yellow - almost white
+    borderRadius: 12,
+    marginRight: 16,
+  },
+  skeletonContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  skeletonTitle: {
+    height: 24,
+    backgroundColor: '#fefce8', // Very light yellow - almost white
+    borderRadius: 6,
+    marginBottom: 12,
+    width: '70%',
+  },
+  skeletonLine: {
+    height: 16,
+    backgroundColor: '#fefce8', // Very light yellow - almost white
+    borderRadius: 4,
+    marginBottom: 8,
+    width: '100%',
+  },
+  skeletonLineShort: {
+    height: 16,
+    backgroundColor: '#fefce8', // Very light yellow - almost white
+    borderRadius: 4,
+    width: '60%',
   },
 });

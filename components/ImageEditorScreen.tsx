@@ -28,7 +28,7 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import Svg, { G, Path } from 'react-native-svg';
-import { captureRef, captureScreen } from 'react-native-view-shot';
+import { captureRef } from 'react-native-view-shot';
 import { InteractiveSticker } from './InteractiveSticker';
 import { StickerBottomSheet } from './StickerBottomSheet';
 import { TextPicker } from './TextPicker';
@@ -309,30 +309,21 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
 
       let uri: string;
 
-      // Optimized capture settings for faster processing
+      // Optimized capture settings for image area only
       const captureOptions = {
         format: 'jpg' as const,
-        quality: 0.6, // Reduced quality for faster processing and smaller files
+        quality: 0.7, // Good quality for image area
         result: 'base64' as const,
         width: Math.min(screenWidth, 800), // Limit width for faster processing
-        height: Math.min(screenHeight - 200, 600), // Limit height
+        height: Math.min(screenHeight - 200, 600), // Limit height to image area only
       };
 
-      // Try captureRef first
+      // Capture only the image area (no UI elements)
       if (captureViewRef.current) {
-        try {
-          uri = await captureRef(captureViewRef.current, captureOptions);
-          console.log('Capture successful with captureRef, base64 length:', uri.length);
-        } catch (refError) {
-          console.log('captureRef failed, trying captureScreen:', refError);
-          // Fallback to captureScreen with same optimized settings
-          uri = await captureScreen(captureOptions);
-          console.log('Capture successful with captureScreen, base64 length:', uri.length);
-        }
+        uri = await captureRef(captureViewRef.current, captureOptions);
+        console.log('Capture successful with captureRef (image area only), base64 length:', uri.length);
       } else {
-        console.log('No ref available, using captureScreen');
-        uri = await captureScreen(captureOptions);
-        console.log('Capture successful with captureScreen, base64 length:', uri.length);
+        throw new Error('Capture view not available');
       }
 
       // Compress base64 data further if it's still too large
@@ -340,11 +331,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         console.log('Base64 data is large, applying additional compression...');
         // Re-capture with even lower quality
         const compressedOptions = { ...captureOptions, quality: 0.4 };
-        if (captureViewRef.current) {
-          uri = await captureRef(captureViewRef.current, compressedOptions);
-        } else {
-          uri = await captureScreen(compressedOptions);
-        }
+        uri = await captureRef(captureViewRef.current, compressedOptions);
         console.log('Compressed base64 length:', uri.length);
       }
 
@@ -553,13 +540,10 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         {/* Horizontal Tool Icons */}
         <View style={styles.horizontalToolButtons}>
           <TouchableOpacity
-            style={[styles.toolButton, toolMode === 'sticker' && styles.activeTool]}
-            onPress={() => {
-              setToolMode('sticker');
-              bottomSheetRef.current?.expand();
-            }}
+            style={[styles.toolButton, toolMode === 'draw' && styles.activeTool]}
+            onPress={() => setToolMode(toolMode === 'draw' ? 'none' : 'draw')}
           >
-            <Ionicons name="happy" size={20} color="#FFFFFF" />
+            <Ionicons name="create-outline" size={20} color="#FFFFFF" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -569,7 +553,7 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
               bottomSheetRef.current?.expand();
             }}
           >
-            <Ionicons name="document-text" size={20} color="#FFFFFF" />
+            <Ionicons name="happy" size={20} color="#FFFFFF" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -593,7 +577,57 @@ export const ImageEditorScreen: React.FC<ImageEditorScreenProps> = ({
         style={styles.imageBackground}
         resizeMode="cover"
       >
+        {/* Hidden capture view - only for screenshot */}
+        <View ref={captureViewRef} style={styles.hiddenCaptureView}>
+          <ImageBackground
+            source={{ uri: images[activeImageIndex] }}
+            style={styles.captureImageBackground}
+            resizeMode="cover"
+          >
+            {/* Render text elements for capture */}
+            {currentEdits.texts.map((textElement) => (
+              <Text
+                key={textElement.id}
+                style={[
+                  styles.captureTextElement,
+                  {
+                    color: textElement.color,
+                    fontSize: textElement.fontSize,
+                    fontFamily: textElement.fontFamily === 'System' ? undefined : textElement.fontFamily,
+                    left: textElement.position.x,
+                    top: textElement.position.y,
+                    transform: [
+                      { scale: textElement.scale },
+                      { rotate: `${textElement.rotation}rad` }
+                    ],
+                  },
+                ]}
+              >
+                {textElement.content}
+              </Text>
+            ))}
 
+            {/* Render sticker elements for capture */}
+            {currentEdits.stickers.map((stickerElement) => (
+              <View
+                key={stickerElement.id}
+                style={[
+                  styles.captureStickerElement,
+                  {
+                    left: stickerElement.position.x,
+                    top: stickerElement.position.y,
+                    transform: [
+                      { scale: stickerElement.scale },
+                      { rotate: `${stickerElement.rotation}rad` }
+                    ],
+                  },
+                ]}
+              >
+                <Image source={{ uri: stickerElement.uri }} style={{ width: 80, height: 80 }} />
+              </View>
+            ))}
+          </ImageBackground>
+        </View>
 
         <View style={styles.canvas} {...panResponderRef.panHandlers}>
           <Svg
@@ -788,11 +822,12 @@ const styles = StyleSheet.create({
   },
   hiddenCaptureView: {
     position: 'absolute',
-    top: -1000, // Hide off-screen
+    top: -2000, // Hide off-screen
     left: 0,
     width: Math.min(screenWidth, 800), // Optimized size
-    height: Math.min(screenHeight - 200, 600), // Optimized size
+    height: Math.min(screenHeight - 200, 600), // Optimized size - only image area
     zIndex: -1,
+    overflow: 'hidden',
   },
   captureImageBackground: {
     width: '100%',
@@ -804,6 +839,8 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   captureStickerElement: {
     position: 'absolute',

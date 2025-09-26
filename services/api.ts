@@ -5,6 +5,7 @@ export const API_CONFIG = {
     IMAGE_DESCRIPTION: '/descriptions/base64',
     CHAT: '/journal/chat',
     CHAT_SESSIONS: '/chats',
+    SUMMARIZE_SESSIONS: '/journal/summarize/sessions',
   },
   HEADERS: {
     'Content-Type': 'application/json',
@@ -64,6 +65,20 @@ export interface ChatSessionsResponse {
   data: JournalEntry[];
   total: number;
   session_id?: string;
+}
+
+export interface SummarizeSessionsRequest {
+  session_ids: string[];
+}
+
+export interface SummarizeSessionsResponse {
+  success?: boolean;
+  data?: {
+    title: string;
+    summary: string;
+    image_url?: string;
+  };
+  summary?: string; // Direct summary response
 }
 
 // Base API service class
@@ -136,6 +151,29 @@ class ApiService {
     //     method: 'GET',
     //   }
     // );
+  }
+
+  async summarizeSessions(sessionIds: string[]): Promise<SummarizeSessionsResponse> {
+    try {
+      return await this.makeRequest<SummarizeSessionsResponse>(
+        API_CONFIG.ENDPOINTS.SUMMARIZE_SESSIONS,
+        {
+          method: 'POST',
+          body: JSON.stringify({ session_ids: sessionIds }),
+        }
+      );
+    } catch (error) {
+      console.error('Error summarizing sessions:', error);
+      // Return fallback data if API fails
+      return {
+        success: false,
+        data: {
+          title: 'Day out in Rome',
+          description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.',
+          image_url: 'https://images.unsplash.com/photo-1541961017774-22349e4a1262?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80'
+        }
+      };
+    }
   }
 
   private generateFallbackResponse(userMessage: string): string {

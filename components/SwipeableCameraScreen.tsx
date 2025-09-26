@@ -4,15 +4,16 @@ import { Audio } from 'expo-av';
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    Dimensions,
-    PanResponder,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Animated,
+  Dimensions,
+  PanResponder,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { ImageEditorScreen } from './ImageEditorScreen';
 
@@ -36,6 +37,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [audioPermission, setAudioPermission] = useState<boolean | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [writeText, setWriteText] = useState('');
 
   const cameraRef = useRef<CameraView>(null);
   const { selectedImages, pickImageFromGallery, addCapturedImage, clearImages, isPicking } = useImagePicker();
@@ -48,7 +50,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
   const iconScale = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef<Audio.Recording | null>(null);
   const recordingInterval = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Mode order: camera, audio, write (camera first as default)
   const modes: Mode[] = ['camera', 'audio', 'write'];
   const getCurrentModeIndex = () => currentIndex;
@@ -56,7 +58,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
   // Circular swipe handler with modulo-based logic
   const handleIconSwipe = (direction: 'left' | 'right') => {
     let newIndex = currentIndex;
-    
+
     if (direction === 'left') {
       // Swipe left - forward: Camera → Audio → Write → Camera...
       newIndex = (currentIndex + 1) % modes.length;
@@ -64,7 +66,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
       // Swipe right - backward: Camera → Write → Audio → Camera...
       newIndex = (currentIndex - 1 + modes.length) % modes.length;
     }
-    
+
     // Animate icon scale for feedback
     Animated.sequence([
       Animated.timing(iconScale, {
@@ -78,11 +80,11 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
         useNativeDriver: true,
       }),
     ]).start();
-    
+
     setCurrentIndex(newIndex);
     const newMode = modes[newIndex];
     setActiveMode(newMode);
-    
+
     Animated.timing(translateX, {
       toValue: -newIndex * screenWidth,
       duration: 300,
@@ -98,7 +100,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
     onPanResponderRelease: (evt, gestureState) => {
       const distance = gestureState.dx;
       const velocity = gestureState.vx;
-      
+
       if (Math.abs(distance) > minSwipeDistance || Math.abs(velocity) > 0.5) {
         if (distance > 0 && velocity > 0) {
           // Swipe right - go to previous mode
@@ -175,10 +177,10 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
 
     try {
       setIsCapturing(true);
-      
+
       // Small delay to ensure camera is ready
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: false,
@@ -213,7 +215,13 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
   };
 
   const handleWritePress = () => {
-    Alert.alert('Write', 'Write functionality coming soon!');
+    if (writeText.trim()) {
+      Alert.alert('Text Saved', `Your text has been saved: "${writeText.substring(0, 50)}${writeText.length > 50 ? '...' : ''}"`);
+      // Here you would typically save the text to your data store
+      // For now, we'll just show an alert
+    } else {
+      Alert.alert('Empty Text', 'Please enter some text before saving.');
+    }
   };
 
   const requestAudioPermission = async () => {
@@ -251,7 +259,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
       const recording = new Audio.Recording();
       await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await recording.startAsync();
-      
+
       recordingRef.current = recording;
       setIsRecording(true);
       setRecordingDuration(0);
@@ -305,7 +313,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
         await recordingRef.current.stopAndUnloadAsync();
         const uri = recordingRef.current.getURI();
         recordingRef.current = null;
-        
+
         setIsRecording(false);
         setRecordingDuration(0);
 
@@ -339,7 +347,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
 
   const switchToMode = (mode: Mode) => {
     const modeIndex = modes.indexOf(mode);
-    
+
     // Animate icon scale for feedback
     Animated.sequence([
       Animated.timing(iconScale, {
@@ -353,7 +361,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
         useNativeDriver: true,
       }),
     ]).start();
-    
+
     setCurrentIndex(modeIndex);
     setActiveMode(mode);
     Animated.timing(translateX, {
@@ -376,9 +384,9 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
     onPanResponderRelease: (evt, gestureState) => {
       const distance = gestureState.dx;
       const velocity = gestureState.vx;
-      
+
       let newIndex = currentIndex;
-      
+
       if (Math.abs(distance) > minSwipeDistance || Math.abs(velocity) > 0.5) {
         if (distance > 0 && velocity > 0) {
           // Swipe right - backward: Camera → Write → Audio → Camera...
@@ -388,11 +396,11 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
           newIndex = (currentIndex + 1) % modes.length;
         }
       }
-      
+
       setCurrentIndex(newIndex);
       const newMode = modes[newIndex];
       setActiveMode(newMode);
-      
+
       Animated.timing(translateX, {
         toValue: -newIndex * screenWidth,
         duration: 300,
@@ -537,7 +545,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
             <View style={styles.audioScreen}>
               {/* Gradient Background */}
               <View style={styles.gradientBackground} />
-              
+
               {/* Main Content */}
               <View style={styles.audioContent}>
                 {/* Recording Status */}
@@ -551,7 +559,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                 )}
 
                 {/* Microphone Icon */}
-                <Animated.View 
+                <Animated.View
                   style={[
                     styles.micContainer,
                     {
@@ -559,10 +567,10 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                     }
                   ]}
                 >
-                  <Ionicons 
-                    name={isRecording ? "mic" : "mic-outline"} 
-                    size={120} 
-                    color={isRecording ? "#FF3B30" : "#FFFFFF"} 
+                  <Ionicons
+                    name={isRecording ? "mic" : "mic-outline"}
+                    size={120}
+                    color={isRecording ? "#FF3B30" : "#FFFFFF"}
                   />
                 </Animated.View>
 
@@ -570,11 +578,11 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                 <Text style={styles.screenTitle}>
                   {isRecording ? "Recording..." : "Yap"}
                 </Text>
-                
+
                 {/* Subtitle */}
                 <Text style={styles.screenSubtitle}>
-                  {isRecording 
-                    ? "Tap the stop button to finish recording" 
+                  {isRecording
+                    ? "Tap the stop button to finish recording"
                     : "Tap the microphone to start recording audio"
                   }
                 </Text>
@@ -582,7 +590,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                 {/* Recording Animation Bar */}
                 {isRecording && (
                   <View style={styles.recordingBarContainer}>
-                    <Animated.View 
+                    <Animated.View
                       style={[
                         styles.recordingBar,
                         {
@@ -598,7 +606,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                         },
                       ]}
                     />
-                    <Animated.View 
+                    <Animated.View
                       style={[
                         styles.recordingBar,
                         {
@@ -617,7 +625,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                         },
                       ]}
                     />
-                    <Animated.View 
+                    <Animated.View
                       style={[
                         styles.recordingBar,
                         {
@@ -636,7 +644,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                         },
                       ]}
                     />
-                    <Animated.View 
+                    <Animated.View
                       style={[
                         styles.recordingBar,
                         {
@@ -655,7 +663,7 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
                         },
                       ]}
                     />
-                    <Animated.View 
+                    <Animated.View
                       style={[
                         styles.recordingBar,
                         {
@@ -680,8 +688,36 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
           {/* Write Screen */}
           <View style={styles.screen}>
             <View style={styles.writeScreen}>
-              <Ionicons name="create" size={64} color="#007AFF" />
+              {/* Gradient Background */}
+              <View style={styles.writeGradientBackground} />
 
+              {/* Main Content */}
+              <View style={styles.writeContent}>
+                {/* Title */}
+                <Text style={styles.writeTitle}>Write</Text>
+
+                {/* Subtitle */}
+                <Text style={styles.writeSubtitle}>
+                  Share your thoughts and ideas
+                </Text>
+
+                {/* Text Input */}
+                <View style={styles.textInputContainer}>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="What's on your mind?"
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                    multiline
+                    textAlignVertical="top"
+                    maxLength={500}
+                    value={writeText}
+                    onChangeText={setWriteText}
+                  />
+                </View>
+
+                {/* Character Count */}
+                <Text style={styles.characterCount}>{writeText.length}/500</Text>
+              </View>
             </View>
           </View>
         </Animated.View>
@@ -717,17 +753,17 @@ export const SwipeableCameraScreen: React.FC<SwipeableCameraScreenProps> = ({ on
           >
             <Animated.View style={[
               styles.cameraButton,
-              { 
+              {
                 transform: [{ scale: iconScale }],
                 borderColor: isRecording ? '#FF3B30' : '#FFFFFF',
               },
             ]}>
               <View style={[
                 styles.cameraButtonInner,
-                { 
-                  backgroundColor: isRecording ? '#FF3B30' : '#FFFFFF', 
-                  alignItems: 'center', 
-                  justifyContent: 'center' 
+                {
+                  backgroundColor: isRecording ? '#FF3B30' : '#FFFFFF',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 },
               ]}>
                 <Ionicons
@@ -846,9 +882,51 @@ const styles = StyleSheet.create({
   writeScreen: {
     flex: 1,
     backgroundColor: '#2C1810',
+    position: 'relative',
+  },
+  writeGradientBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFF8DC', // Light cream
+    background: 'linear-gradient(180deg, #FFF8DC 0%, #FFE4B5 25%, #FFD700 50%, #FFA500 75%, #FF8C00 100%)',
+  },
+  writeContent: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
+    zIndex: 1,
+  },
+  writeTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  writeSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  textInputContainer: {
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 16,
+  },
+  characterCount: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'right',
+    width: '100%',
+    maxWidth: 320,
   },
   camera: {
     flex: 1,

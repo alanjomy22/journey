@@ -63,10 +63,10 @@ export default function InsightDetailsScreen() {
   const autoRecordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isAutoRecordingRef = useRef(false);
   const autoRecordingCancelledRef = useRef(false);
-  
+
   // Animation for listening gradient
   const gradientAnimation = useRef(new Animated.Value(0)).current;
-  
+
   // API hooks
   const { getDescription, loading: descriptionLoading, error: descriptionError } = useImageDescription();
   const { sendMessage, loading: chatLoading, error: chatError } = useChat();
@@ -92,23 +92,23 @@ export default function InsightDetailsScreen() {
   useEffect(() => {
     const loadJournalEntry = async () => {
       // First try mock data
-      
+
       // If not found in mock data, try AsyncStorage (for captured images)
-      if ( id) {
+      if (id) {
         try {
           const storedData = await AsyncStorage.getItem(`journal_${id}`);
 
           console.log('Stored data:', storedData);
           if (storedData) {
             const journalEntry = JSON.parse(storedData);
-      setEntry(journalEntry);
+            setEntry(journalEntry);
 
           }
         } catch (error) {
           console.error('Error loading journal entry:', error);
         }
       }
-      
+
     };
 
     loadJournalEntry();
@@ -118,7 +118,7 @@ export default function InsightDetailsScreen() {
   const playResponseAudio = async (audioUrl: string) => {
     try {
       console.log('🔊 Playing response audio:', audioUrl);
-      
+
       // Configure audio session to use speaker
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -127,24 +127,24 @@ export default function InsightDetailsScreen() {
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
-      
+
       // Stop any currently playing response audio
       if (currentResponseAudio) {
         await currentResponseAudio.unloadAsync();
       }
-      
+
       // Load and play the new audio
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUrl },
-        { 
+        {
           shouldPlay: true,
           // Force speaker output on iOS
           volume: 1.0,
         }
       );
-      
+
       setCurrentResponseAudio(sound);
-      
+
       // Set up completion listener
       sound.setOnPlaybackStatusUpdate((status: any) => {
         if (status.isLoaded && status.didJustFinish) {
@@ -152,7 +152,7 @@ export default function InsightDetailsScreen() {
           setCurrentResponseAudio(null);
         }
       });
-      
+
     } catch (error) {
       console.error('❌ Failed to play response audio:', error);
     }
@@ -162,7 +162,7 @@ export default function InsightDetailsScreen() {
   const playAudioMessage = async (audioUri: string, messageId: string) => {
     try {
       console.log('🔊 Playing audio message:', audioUri);
-      
+
       // Configure audio session to use speaker
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -171,54 +171,54 @@ export default function InsightDetailsScreen() {
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
-      
+
       // Stop any currently playing response audio
       if (currentResponseAudio) {
         await currentResponseAudio.unloadAsync();
       }
-      
+
       // Update message state to show playing
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === messageId 
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === messageId
             ? { ...msg, isPlaying: true }
             : { ...msg, isPlaying: false }
         )
       );
-      
+
       // Load and play the audio
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
-        { 
+        {
           shouldPlay: true,
           volume: 1.0,
         }
       );
-      
+
       setCurrentResponseAudio(sound);
-      
+
       // Set up completion listener
       sound.setOnPlaybackStatusUpdate((status: any) => {
         if (status.isLoaded && status.didJustFinish) {
           console.log('✅ Audio message finished playing');
           setCurrentResponseAudio(null);
           // Update message state to show not playing
-          setMessages(prev => 
-            prev.map(msg => 
-              msg.id === messageId 
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === messageId
                 ? { ...msg, isPlaying: false }
                 : msg
             )
           );
         }
       });
-      
+
     } catch (error) {
       console.error('❌ Failed to play audio message:', error);
       // Reset playing state on error
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === messageId 
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === messageId
             ? { ...msg, isPlaying: false }
             : msg
         )
@@ -233,11 +233,11 @@ export default function InsightDetailsScreen() {
         await currentResponseAudio.unloadAsync();
         setCurrentResponseAudio(null);
       }
-      
+
       // Update message state to show not playing
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === messageId 
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === messageId
             ? { ...msg, isPlaying: false }
             : msg
         )
@@ -249,7 +249,7 @@ export default function InsightDetailsScreen() {
 
   const addStreamingBotMessage = useCallback((fullText: string, audioUrl?: string, shouldAutoPlay: boolean = false, isFirstMessage: boolean = false) => {
     const messageId = Date.now().toString();
-    
+
     // Add empty streaming message
     const streamingMessage: ChatMessage = {
       id: messageId,
@@ -261,40 +261,40 @@ export default function InsightDetailsScreen() {
       responseAudioUrl: audioUrl,
       shouldAutoPlay
     };
-    
+
     setMessages(prev => [...prev, streamingMessage]);
-    
+
     // Split text into words for streaming effect
     const words = fullText.split(' ');
     let currentText = '';
-    
+
     words.forEach((word, index) => {
       setTimeout(() => {
         currentText += (index === 0 ? '' : ' ') + word;
         const isLastWord = index === words.length - 1;
-        
-        setMessages(prev => 
-          prev.map(msg => 
-            msg.id === messageId 
+
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === messageId
               ? { ...msg, text: currentText, isStreaming: !isLastWord }
               : msg
           )
         );
-        
+
         // Auto-play audio when streaming is complete
         if (isLastWord && shouldAutoPlay && audioUrl) {
           setTimeout(() => {
             playResponseAudio(audioUrl);
           }, 500); // Small delay after text completion
         }
-        
+
         // Start auto-recording after first bot message completes
         if (isLastWord && isFirstMessage) {
           setTimeout(() => {
             startAutoRecording();
           }, 1000); // Start recording 1 second after message completes
         }
-        
+
         // Scroll to bottom after each word
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
@@ -311,7 +311,7 @@ export default function InsightDetailsScreen() {
       isAutoRecordingRef.current = true;
       setAutoRecordingCancelled(false);
       autoRecordingCancelledRef.current = false;
-      
+
       // Start gradient animation
       Animated.loop(
         Animated.sequence([
@@ -327,29 +327,29 @@ export default function InsightDetailsScreen() {
           }),
         ])
       ).start();
-      
+
       await startRecording();
-      
+
       // Stop recording after 10 seconds and process transcription
       autoRecordingTimerRef.current = setTimeout(async () => {
         console.log('⏰ 10 seconds elapsed, stopping auto-recording...');
         console.log('⏰ Current state - isAutoRecording:', isAutoRecordingRef.current, 'autoRecordingCancelled:', autoRecordingCancelledRef.current);
-        
+
         // Check if recording was cancelled
         if (autoRecordingCancelledRef.current) {
           console.log('⏭️ Auto-recording was cancelled, skipping stop');
           return;
         }
-        
+
         try {
           // Always try to stop recording after 10 seconds
           await stopRecording();
           console.log('✅ Auto-recording completed, will process transcription');
-          
+
           // Stop gradient animation
           gradientAnimation.stopAnimation();
           gradientAnimation.setValue(0);
-          
+
           setIsAutoRecording(false);
           isAutoRecordingRef.current = false;
           autoRecordingTimerRef.current = null;
@@ -372,19 +372,19 @@ export default function InsightDetailsScreen() {
   // Function to cancel auto-recording when user starts typing (without transcription)
   const cancelAutoRecording = async () => {
     console.log('✋ cancelAutoRecording called. isAutoRecording:', isAutoRecordingRef.current, 'isRecording:', isRecording, 'hasTimer:', !!autoRecordingTimerRef.current);
-    
+
     if (isAutoRecordingRef.current || autoRecordingTimerRef.current || isRecording) {
       console.log('✋ Cancelling auto-recording due to user typing...');
       setAutoRecordingCancelled(true);
       autoRecordingCancelledRef.current = true;
-      
+
       // Clear the timer first
       if (autoRecordingTimerRef.current) {
         clearTimeout(autoRecordingTimerRef.current);
         autoRecordingTimerRef.current = null;
         console.log('✅ Timer cleared');
       }
-      
+
       // Stop recording if it's active
       if (isRecording) {
         try {
@@ -394,11 +394,11 @@ export default function InsightDetailsScreen() {
           console.error('Error stopping recording:', error);
         }
       }
-      
+
       // Stop gradient animation
       gradientAnimation.stopAnimation();
       gradientAnimation.setValue(0);
-      
+
       // Clear recording without processing to prevent transcription
       setTimeout(() => {
         clearRecording();
@@ -406,7 +406,7 @@ export default function InsightDetailsScreen() {
         autoRecordingCancelledRef.current = false;
         console.log('✅ Recording cleared');
       }, 300);
-      
+
       setIsAutoRecording(false);
       isAutoRecordingRef.current = false;
     } else {
@@ -417,19 +417,23 @@ export default function InsightDetailsScreen() {
   useEffect(() => {
     const handleInitialImageAnalysis = async (base64Data: string) => {
       setIsAnalyzing(true);
-      
+
       // Generate a unique session ID for this conversation
       const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setSessionId(newSessionId);
-      
+
+      // Store the session ID for access from other pages
+      const { sessionStorage } = await import('@/utils/sessionStorage');
+      await sessionStorage.setSessionId(newSessionId);
+
       try {
         // Get image description from API
         const description = await getDescription(base64Data);
         setImageDescription(description);
-        
+
         // Generate chat response based on the description
         const chatResponse = await sendMessage('I want to write a journal about this image', description, newSessionId);
-        
+
         // Add bot's streaming response
         setTimeout(() => {
           addStreamingBotMessage(chatResponse.content, chatResponse.audio_file, false, true); // Mark as first message
@@ -458,7 +462,7 @@ export default function InsightDetailsScreen() {
         }
       ];
       setMessages(initialMessages);
-      
+
       // Get image description from API and then generate chat response
       handleInitialImageAnalysis(entry.base64Data);
     }
@@ -517,17 +521,17 @@ export default function InsightDetailsScreen() {
       'How did your environment or surroundings affect your mood?',
       'What story does this day tell about who you are becoming?',
     ];
-    
+
     // Return 3-5 random questions
     const shuffled = questionBank.sort(() => 0.5 - Math.random());
     return shuffled.slice(0, 3 + Math.floor(Math.random() * 3));
   };
 
-  const generateBotResponse = useCallback(async (userInput: string, isAudioInput: boolean = false): Promise<{text: string, audioUrl?: string}> => {
+  const generateBotResponse = useCallback(async (userInput: string, isAudioInput: boolean = false): Promise<{ text: string, audioUrl?: string }> => {
     try {
       // Use the chat API with the image description and session ID
       const response = await sendMessage(userInput, imageDescription, sessionId);
-      
+
       // Handle new response format with audio_file
       return {
         text: response.content,
@@ -548,13 +552,13 @@ export default function InsightDetailsScreen() {
         'Your words paint such a vivid picture. How do you think this experience will influence your future choices?',
         'That\'s a profound observation. What other thoughts or feelings came up for you during this time?',
       ];
-      
+
       // Sometimes ask random questions to deepen the conversation
       if (Math.random() < 0.3) {
         const randomQuestions = generateRandomQuestions();
         return { text: randomQuestions[0] };
       }
-      
+
       return { text: contextualResponses[Math.floor(Math.random() * contextualResponses.length)] };
     }
   }, [sendMessage, imageDescription, sessionId]);
@@ -565,7 +569,7 @@ export default function InsightDetailsScreen() {
     const handleRecordingComplete = async () => {
       if (!isRecording && recordingUri && !isTranscribing) {
         console.log('🎤 Recording completed, starting transcription...', recordingUri);
-        
+
         // Skip transcription if this was auto-recording that was cancelled by typing
         if (autoRecordingCancelledRef.current) {
           console.log('⏭️ Skipping transcription for cancelled auto-recording');
@@ -574,20 +578,20 @@ export default function InsightDetailsScreen() {
           autoRecordingCancelledRef.current = false;
           return;
         }
-        
+
         // Show transcribing status
         setShowTranscribing(true);
-        
+
         // Skip adding audio message, go directly to transcription
         // Start transcription
         const transcribedText = await transcribeAudio(recordingUri);
-        
+
         // Hide transcribing status
         setShowTranscribing(false);
-        
+
         if (transcribedText) {
           console.log('✅ Transcription completed:', transcribedText);
-          
+
           // Add transcribed text as a user message
           const transcribedMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -596,9 +600,9 @@ export default function InsightDetailsScreen() {
             isUser: true,
             timestamp: new Date(),
           };
-          
+
           setMessages(prev => [...prev, transcribedMessage]);
-          
+
           // Send transcribed text to chat API
           setTimeout(async () => {
             try {
@@ -614,7 +618,7 @@ export default function InsightDetailsScreen() {
           console.error('❌ Transcription failed');
           Alert.alert('Transcription Failed', 'Could not transcribe your audio. Please try recording again.');
         }
-        
+
         // Clear the recording after processing
         clearRecording();
       }
@@ -634,7 +638,7 @@ export default function InsightDetailsScreen() {
   const handleImagePicker = async (source: 'camera' | 'gallery') => {
     try {
       let result;
-      
+
       if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
@@ -669,9 +673,9 @@ export default function InsightDetailsScreen() {
           isUser: true,
           timestamp: new Date(),
         };
-        
+
         setMessages(prev => [...prev, imageMessage]);
-        
+
         // Bot responds to image
         setTimeout(() => {
           addStreamingBotMessage('What a wonderful image! This adds so much context to your story. What was happening when you took this photo? What emotions does it bring back?');
@@ -686,7 +690,7 @@ export default function InsightDetailsScreen() {
     // Simulate file upload since expo-document-picker isn't available
     const fileTypes = ['Document.pdf', 'Notes.txt', 'Thoughts.docx', 'Reflection.md'];
     const randomFile = fileTypes[Math.floor(Math.random() * fileTypes.length)];
-    
+
     const fileMessage: ChatMessage = {
       id: Date.now().toString(),
       type: 'file',
@@ -695,9 +699,9 @@ export default function InsightDetailsScreen() {
       isUser: true,
       timestamp: new Date(),
     };
-    
+
     setMessages(prev => [...prev, fileMessage]);
-    
+
     // Bot responds to file
     setTimeout(() => {
       addStreamingBotMessage('Thanks for sharing that document! It looks like you\'ve put some thought into this. What inspired you to create this file? What key insights does it contain?');
@@ -710,7 +714,7 @@ export default function InsightDetailsScreen() {
       {/* Audio controls at the top of the message if it's an audio message */}
       {item.type === 'audio' && item.audioUri && (
         <View style={styles.audioControlsContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.audioPlayButton}
             onPress={async () => {
               if (item.isPlaying) {
@@ -720,10 +724,10 @@ export default function InsightDetailsScreen() {
               }
             }}
           >
-            <RemixIcon 
-              name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"} 
-              size={28} 
-              color="#007AFF" 
+            <RemixIcon
+              name={item.isPlaying ? "pause-circle-fill" : "play-circle-fill"}
+              size={28}
+              color="#007AFF"
             />
           </TouchableOpacity>
           <View style={styles.audioInfo}>
@@ -732,22 +736,22 @@ export default function InsightDetailsScreen() {
             </ThemedText>
             <View style={styles.waveform}>
               {Array.from({ length: 12 }, (_, i) => (
-                <View 
+                <View
                   key={i}
                   style={[
                     styles.waveformBar,
-                    { 
+                    {
                       height: 4 + Math.random() * 16,
                       backgroundColor: '#007AFF'
                     }
-                  ]} 
+                  ]}
                 />
               ))}
             </View>
           </View>
         </View>
       )}
-      
+
       {/* Simple message content without card or timestamp */}
       {item.type === 'image' && item.imageUri ? (
         <Image
@@ -789,7 +793,7 @@ export default function InsightDetailsScreen() {
       )}
     </View>
   );
-  
+
   // Handle sending message from bottom input
   const handleBottomMessageSend = async (text: string) => {
     // Create user message
@@ -800,16 +804,16 @@ export default function InsightDetailsScreen() {
       isUser: true,
       timestamp: new Date(),
     };
-    
+
     // Add message and clear input
     setMessages(prev => [...prev, userMessage]);
     setBottomInputText('');
-    
+
     // Scroll to bottom after adding message
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
-    
+
     // Generate bot response
     setTimeout(async () => {
       try {
@@ -823,19 +827,19 @@ export default function InsightDetailsScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
+    <KeyboardAvoidingView
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {/* Top Navigation */}
       <View style={styles.topNavigation}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => router.back()}
         >
           <RemixIcon name="arrow-left-line" size={24} color="#333" />
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => handleImagePicker('gallery')}
         >
@@ -925,7 +929,7 @@ export default function InsightDetailsScreen() {
       {/* Animated Yellow Gradient Background when listening */}
       {(isRecording || isAutoRecording) && (
         <View style={styles.listeningOverlay}>
-          <Animated.View 
+          <Animated.View
             style={[
               styles.animatedGradient,
               {
@@ -934,7 +938,7 @@ export default function InsightDetailsScreen() {
                   outputRange: [0.6, 0.9],
                 }),
               },
-            ]} 
+            ]}
           />
           <View style={styles.listeningContent}>
             <ThemedText style={styles.listeningText}>
@@ -943,7 +947,7 @@ export default function InsightDetailsScreen() {
           </View>
         </View>
       )}
-      
+
       {/* Tick Button at Bottom Right */}
       <TouchableOpacity style={styles.tickButton}>
         <RemixIcon name="check-line" size={24} color="#FFFFFF" />

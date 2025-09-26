@@ -9,20 +9,24 @@ interface StickerBottomSheetProps {
   onStickerSelect: (stickerUri: string) => void;
 }
 
-// Sample sticker data - you can replace these with your own sticker images
+// Sample sticker data with smile-focused emojis
 const sampleStickers = [
-  { id: '1', uri: 'https://cdn-icons-png.flaticon.com/512/742/742751.png', name: 'Heart' },
-  { id: '2', uri: 'https://cdn-icons-png.flaticon.com/512/742/742752.png', name: 'Star' },
-  { id: '3', uri: 'https://cdn-icons-png.flaticon.com/512/742/742753.png', name: 'Smile' },
-  { id: '4', uri: 'https://cdn-icons-png.flaticon.com/512/742/742754.png', name: 'Fire' },
-  { id: '5', uri: 'https://cdn-icons-png.flaticon.com/512/742/742755.png', name: 'Thumbs Up' },
-  { id: '6', uri: 'https://cdn-icons-png.flaticon.com/512/742/742756.png', name: 'Party' },
-  { id: '7', uri: 'https://cdn-icons-png.flaticon.com/512/742/742757.png', name: 'Love' },
-  { id: '8', uri: 'https://cdn-icons-png.flaticon.com/512/742/742758.png', name: 'Cool' },
-  { id: '9', uri: 'https://cdn-icons-png.flaticon.com/512/742/742759.png', name: 'Laugh' },
-  { id: '10', uri: 'https://cdn-icons-png.flaticon.com/512/742/742760.png', name: 'Wink' },
-  { id: '11', uri: 'https://cdn-icons-png.flaticon.com/512/742/742761.png', name: 'Kiss' },
-  { id: '12', uri: 'https://cdn-icons-png.flaticon.com/512/742/742762.png', name: 'Angry' },
+  { id: '1', uri: 'https://cdn-icons-png.flaticon.com/512/742/742751.png', name: '😊' },
+  { id: '2', uri: 'https://cdn-icons-png.flaticon.com/512/742/742752.png', name: '😄' },
+  { id: '3', uri: 'https://cdn-icons-png.flaticon.com/512/742/742753.png', name: '😃' },
+  { id: '4', uri: 'https://cdn-icons-png.flaticon.com/512/742/742754.png', name: '😁' },
+  { id: '5', uri: 'https://cdn-icons-png.flaticon.com/512/742/742755.png', name: '😂' },
+  { id: '6', uri: 'https://cdn-icons-png.flaticon.com/512/742/742756.png', name: '🤣' },
+  { id: '7', uri: 'https://cdn-icons-png.flaticon.com/512/742/742757.png', name: '😍' },
+  { id: '8', uri: 'https://cdn-icons-png.flaticon.com/512/742/742758.png', name: '🥰' },
+  { id: '9', uri: 'https://cdn-icons-png.flaticon.com/512/742/742759.png', name: '😘' },
+  { id: '10', uri: 'https://cdn-icons-png.flaticon.com/512/742/742760.png', name: '😉' },
+  { id: '11', uri: 'https://cdn-icons-png.flaticon.com/512/742/742761.png', name: '😎' },
+  { id: '12', uri: 'https://cdn-icons-png.flaticon.com/512/742/742762.png', name: '🤩' },
+  { id: '13', uri: 'https://cdn-icons-png.flaticon.com/512/742/742763.png', name: '😋' },
+  { id: '14', uri: 'https://cdn-icons-png.flaticon.com/512/742/742764.png', name: '🤗' },
+  { id: '15', uri: 'https://cdn-icons-png.flaticon.com/512/742/742765.png', name: '😇' },
+  { id: '16', uri: 'https://cdn-icons-png.flaticon.com/512/742/742766.png', name: '🥳' },
 ];
 
 export const StickerBottomSheet: React.FC<StickerBottomSheetProps> = ({
@@ -67,7 +71,7 @@ export const StickerBottomSheet: React.FC<StickerBottomSheetProps> = ({
             <Ionicons name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
-        
+
         <FlatList
           data={sampleStickers}
           renderItem={renderStickerItem}
