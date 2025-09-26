@@ -50,7 +50,7 @@ export async function convertImageToBase64(imageUri: string): Promise<string> {
  * @returns 'image/jpeg' | 'image/png'
  */
 export function getImageContentType(imageUri: string): 'image/jpeg' | 'image/png' {
-  const extension = imageUri.toLowerCase().split('.').pop();
+  const extension = imageUri?.toLowerCase()?.split('.')?.pop();
 
   switch (extension) {
     case 'png':

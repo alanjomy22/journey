@@ -1,6 +1,5 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { mockJournalEntries } from '@/constants/mockData';
 import { useAudioRecording, useChat, useImageDescription } from '@/hooks';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
@@ -80,26 +79,28 @@ export default function InsightDetailsScreen() {
   } = useAudioRecording();
 
   // Find the journal entry from mock data or AsyncStorage
-  const [entry, setEntry] = useState(mockJournalEntries.find(e => e.id === id));
+  const [entry, setEntry] = useState();
 
   useEffect(() => {
     const loadJournalEntry = async () => {
       // First try mock data
-      let journalEntry = mockJournalEntries.find(e => e.id === id);
       
       // If not found in mock data, try AsyncStorage (for captured images)
-      if (!journalEntry && id) {
+      if ( id) {
         try {
           const storedData = await AsyncStorage.getItem(`journal_${id}`);
+
+          console.log('Stored data:', storedData);
           if (storedData) {
-            journalEntry = JSON.parse(storedData);
+            const journalEntry = JSON.parse(storedData);
+      setEntry(journalEntry);
+
           }
         } catch (error) {
           console.error('Error loading journal entry:', error);
         }
       }
       
-      setEntry(journalEntry);
     };
 
     loadJournalEntry();
@@ -406,7 +407,7 @@ export default function InsightDetailsScreen() {
   };
 
   useEffect(() => {
-    const handleInitialImageAnalysis = async (imageUri: string) => {
+    const handleInitialImageAnalysis = async (imageUri: string, base64Data: string) => {
       setIsAnalyzing(true);
       
       // Generate a unique session ID for this conversation
@@ -415,7 +416,7 @@ export default function InsightDetailsScreen() {
       
       try {
         // Get image description from API
-        const description = await getDescription(imageUri);
+        const description = await getDescription(base64Data);
         setImageDescription(description);
         
         // Generate chat response based on the description
@@ -445,12 +446,13 @@ export default function InsightDetailsScreen() {
           imageUri: entry.image,
           isUser: true,
           timestamp: new Date(Date.now() - 60000), // 1 minute ago
+          base64Data: entry.base64Data,
         }
       ];
       setMessages(initialMessages);
       
       // Get image description from API and then generate chat response
-      handleInitialImageAnalysis(entry.image);
+      handleInitialImageAnalysis(entry);
     }
   }, [entry, getDescription, sendMessage]);
 

@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
 import { apiService, ImageDescriptionRequest, ImageDescriptionResponse } from '@/services/api';
-import { convertImageToBase64, getImageContentType } from '@/utils/imageUtils';
+import { getImageContentType } from '@/utils/imageUtils';
+import { useCallback, useState } from 'react';
 
 interface UseImageDescriptionReturn {
   getDescription: (imageUri: string) => Promise<string>;
@@ -15,19 +15,18 @@ export function useImageDescription(): UseImageDescriptionReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getDescription = useCallback(async (imageUri: string): Promise<string> => {
+  const getDescription = useCallback(async (base64String: string): Promise<string> => {
     setLoading(true);
     setError(null);
 
     try {
       // Convert image to base64
-      const base64Data = await convertImageToBase64(imageUri);
-      const contentType = getImageContentType(imageUri);
+      const contentType = getImageContentType(base64String);
 
       // Prepare API request
       const request: ImageDescriptionRequest = {
         media_type: 'image',
-        base64_data: base64Data,
+        base64_data: base64String,
         content_type: contentType,
       };
 
@@ -39,7 +38,7 @@ export function useImageDescription(): UseImageDescriptionReturn {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       console.error('Error getting image description:', err);
-      
+
       // Return a fallback description
       return 'I can see this is a meaningful moment you\'ve captured. What was happening when you took this photo?';
     } finally {
